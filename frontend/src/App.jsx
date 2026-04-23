@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 
 // Configure axios for CORS
@@ -67,7 +67,7 @@ function App() {
     if (scanModal) {
       const timer = setTimeout(() => {
         setScanModal(null);
-      }, 3000);
+      }, 5000);
       return () => clearTimeout(timer);
     }
   }, [scanModal]);
@@ -83,6 +83,8 @@ function App() {
       setScanModal({
         full_name: response.data.user.full_name,
         area: response.data.user.area,
+        gaveta: response.data.user.gaveta,
+        posicion: response.data.user.posicion,
         time: new Date().toLocaleTimeString()
       });
     } catch (err) {
@@ -157,29 +159,49 @@ function App() {
   return (
     <div className="min-h-screen bg-black text-white p-4">
       {scanModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
-          <div className={`bg-gray-950 p-6 rounded-sm shadow-lg border text-center max-w-sm animate-zoom-in ${
-            scanModal.error ? 'border-gray-700' : 'border-gray-700'
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 animate-fade-in">
+          <div className={`bg-gray-950 p-8 md:p-12 rounded-lg shadow-2xl border-2 text-center w-full max-w-xl mx-4 animate-zoom-in ${
+            scanModal.error ? 'border-red-800' : 'border-emerald-800'
           }`}>
             {scanModal.error ? (
               <>
-                <h2 className="text-lg font-semibold text-gray-300 mb-2">Error</h2>
-                <p className="text-gray-400 text-sm">{scanModal.error}</p>
+                <div className="w-20 h-20 mx-auto mb-6 bg-red-950 border-2 border-red-800 rounded-full flex items-center justify-center">
+                  <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-red-400 mb-4">Error</h2>
+                <p className="text-gray-300 text-xl">{scanModal.error}</p>
               </>
             ) : (
               <>
-                <div className="mb-3">
-                  <div className="w-10 h-10 mx-auto mb-3 bg-gray-800 border border-gray-700 rounded-full flex items-center justify-center animate-zoom-in" style={{animationDelay: '0.1s'}}>
-                    <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                <div className="mb-6">
+                  <div className="w-20 h-20 mx-auto mb-4 bg-emerald-950 border-2 border-emerald-800 rounded-full flex items-center justify-center animate-zoom-in" style={{animationDelay: '0.1s'}}>
+                    <svg className="w-10 h-10 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path>
                     </svg>
                   </div>
-                  <h2 className="text-lg font-semibold text-gray-100">Registrado</h2>
+                  <h2 className="text-3xl font-bold text-emerald-400">REGISTRADO</h2>
                 </div>
-                <div className="space-y-1 text-left text-xs">
-                  <p className="text-gray-400"><span className="text-gray-300">Nombre:</span> {scanModal.full_name}</p>
-                  <p className="text-gray-400"><span className="text-gray-300">Área:</span> {scanModal.area || '-'}</p>
-                  <p className="text-gray-500">Hora: {scanModal.time}</p>
+
+                {/* Gaveta & Posición - BIG and prominent */}
+                <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center">
+                      <p className="text-gray-500 text-sm uppercase tracking-widest mb-1">Gaveta</p>
+                      <p className="text-6xl font-black text-white">{scanModal.gaveta}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-500 text-sm uppercase tracking-widest mb-1">Posición</p>
+                      <p className="text-6xl font-black text-white">{scanModal.posicion}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-left text-lg">
+                  <p className="text-gray-300"><span className="text-gray-500">Nombre:</span> <span className="font-semibold text-white">{scanModal.full_name}</span></p>
+                  <p className="text-gray-300"><span className="text-gray-500">Área:</span> <span className="font-semibold text-white">{scanModal.area || '-'}</span></p>
+                  <p className="text-gray-600 text-base mt-4">Hora: {scanModal.time}</p>
                 </div>
               </>
             )}
@@ -188,25 +210,27 @@ function App() {
       )}
       
       {!showModal ? (
-        <div className="max-w-2xl mx-auto">
-          <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
-            <h1 className="text-2xl font-light">Control Asistencia</h1>
-            <button onClick={handleOpenModal} className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-sm text-sm font-medium transition">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-6">
+            <h1 className="text-4xl font-light tracking-tight">Control Asistencia</h1>
+            <button onClick={handleOpenModal} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">
               Reportes
             </button>
           </div>
-          <div className={`p-4 border-b mb-6 text-center ${currentTurn.withinWindow ? "border-gray-700" : "border-gray-600"}`}>
-            <h2 className="text-lg font-light text-gray-200">{currentTurn.name}</h2>
-            <p className="mt-2 text-xs text-gray-500">{currentTurn.withinWindow ? "ACTIVO" : "INACTIVO"}</p>
+          <div className={`p-6 border-b mb-8 text-center ${currentTurn.withinWindow ? "border-emerald-800" : "border-gray-700"}`}>
+            <h2 className="text-2xl font-light text-gray-200">{currentTurn.name}</h2>
+            <p className={`mt-3 text-sm font-semibold tracking-widest ${currentTurn.withinWindow ? "text-emerald-500" : "text-gray-600"}`}>
+              {currentTurn.withinWindow ? "● ACTIVO" : "○ INACTIVO"}
+            </p>
           </div>
-          <div className="bg-gray-950 border border-gray-800 p-6 rounded-sm">
-            <h1 className="text-2xl font-light mb-6 text-center text-gray-100">Escanea Badge</h1>
+          <div className="bg-gray-950 border border-gray-800 p-8 md:p-12 rounded-lg">
+            <h1 className="text-3xl font-light mb-8 text-center text-gray-100">Escanea Badge</h1>
             <form onSubmit={handleScan}>
               <input 
                 ref={inputRef} 
                 type="text" 
-                className={`w-full bg-gray-900 border rounded-sm p-3 text-center text-white focus:outline-none placeholder-gray-600 transition-all ${
-                  isScanning ? 'border-gray-600 animate-pulse' : 'border-gray-700 focus:border-gray-600'
+                className={`w-full bg-gray-900 border-2 rounded-md p-5 text-center text-2xl text-white focus:outline-none placeholder-gray-600 transition-all ${
+                  isScanning ? 'border-gray-600 animate-pulse' : 'border-gray-700 focus:border-gray-500'
                 }`}
                 placeholder={isScanning ? "Procesando..." : "Escanea aqui..."} 
                 value={scannedData} 
@@ -215,11 +239,11 @@ function App() {
                 autoFocus 
               />
               {isScanning && (
-                <div className="mt-4 flex justify-center">
-                  <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0s'}}></div>
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
+                <div className="mt-6 flex justify-center">
+                  <div className="flex space-x-3">
+                    <div className="w-4 h-4 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0s'}}></div>
+                    <div className="w-4 h-4 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    <div className="w-4 h-4 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
                   </div>
                 </div>
               )}
@@ -227,55 +251,87 @@ function App() {
           </div>
         </div>
       ) : (
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-gray-950 border border-gray-800 p-6 rounded-sm">
-            <div className="flex justify-between mb-6 border-b border-gray-800 pb-4">
-              <h2 className="text-2xl font-light">Reportes</h2>
-              <button onClick={handleCloseModal} className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-sm text-sm font-medium transition">Cerrar</button>
+        <div className="max-w-5xl mx-auto">
+          <div className="bg-gray-950 border border-gray-800 p-6 md:p-8 rounded-lg">
+            <div className="flex justify-between mb-8 border-b border-gray-800 pb-6">
+              <h2 className="text-3xl font-light">Reportes</h2>
+              <button onClick={handleCloseModal} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">Cerrar</button>
             </div>
             {!registrations ? (
-              <div className="bg-gray-900 border border-gray-800 p-6 rounded-sm">
-                <h3 className="text-lg font-light mb-6">Credenciales</h3>
-                {loginError && <div className="mb-4 border-l border-gray-700 bg-gray-900 text-gray-400 p-2 text-sm">{loginError}</div>}
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-sm p-3 text-white placeholder-gray-600 focus:outline-none focus:border-gray-600 text-sm" placeholder="Usuario" />
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-sm p-3 text-white placeholder-gray-600 focus:outline-none focus:border-gray-600 text-sm" placeholder="Contraseña" />
+              <div className="bg-gray-900 border border-gray-800 p-8 rounded-lg">
+                <h3 className="text-2xl font-light mb-8">Credenciales</h3>
+                {loginError && <div className="mb-6 border-l-2 border-red-800 bg-gray-900 text-red-400 p-4 text-lg">{loginError}</div>}
+                <form onSubmit={handleLogin} className="space-y-6">
+                  <input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-md p-4 text-white placeholder-gray-600 focus:outline-none focus:border-gray-500 text-lg" placeholder="Usuario" />
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-md p-4 text-white placeholder-gray-600 focus:outline-none focus:border-gray-500 text-lg" placeholder="Contraseña" />
                   <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-300">Fecha</label>
-                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-sm p-3 text-white focus:outline-none focus:border-gray-600 text-sm" />
+                    <label className="block text-lg font-medium mb-3 text-gray-300">Fecha</label>
+                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-md p-4 text-white focus:outline-none focus:border-gray-500 text-lg" />
                   </div>
-                  <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium py-2 rounded-sm text-sm transition">ENTRAR</button>
+                  <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 rounded-md text-lg transition">ENTRAR</button>
                 </form>
               </div>
             ) : (
               <div>
-                <div className="mb-6">
-                  <p className="text-sm font-light mb-4">Fecha: <span className="text-gray-300">{registrations.date}</span> | Área: <span className="text-gray-300">{registrations.userArea}</span></p>
-                  <button onClick={handleDownload} className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-sm text-sm font-medium transition">Descargar Excel</button>
+                <div className="mb-8">
+                  <p className="text-lg font-light mb-4">Fecha: <span className="text-gray-300">{registrations.date}</span> | Área: <span className="text-gray-300">{registrations.userArea}</span></p>
+                  <button onClick={handleDownload} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">Descargar Excel</button>
                 </div>
-                <div className="mb-6">
-                  <h4 className="font-light text-lg mb-2 text-gray-200">Turno Mañana</h4>
-                  <p className="text-xs text-gray-500 mb-2">{registrations.turn_1.time}</p>
-                  <div className="bg-gray-900 rounded-sm border border-gray-800 overflow-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b border-gray-800 bg-gray-900"><tr><th className="p-2 text-left font-medium text-gray-400">Num Empleado</th><th className="p-2 text-left font-medium text-gray-400">Nombre</th></tr></thead>
-                      <tbody>{registrations.turn_1.data.map((l, i) => <tr key={i} className="border-b border-gray-800"><td className="p-2 text-gray-400">{l.num_empleado}</td><td className="p-2 text-gray-400">{l.full_name}</td></tr>)}</tbody>
+                <div className="mb-8">
+                  <h4 className="font-light text-2xl mb-3 text-gray-200">Turno Mañana</h4>
+                  <p className="text-sm text-gray-500 mb-3">{registrations.turn_1.time}</p>
+                  <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-auto">
+                    <table className="w-full text-base">
+                      <thead className="border-b border-gray-800 bg-gray-900">
+                        <tr>
+                          <th className="p-3 text-left font-semibold text-gray-400">Num Empleado</th>
+                          <th className="p-3 text-left font-semibold text-gray-400">Nombre</th>
+                          <th className="p-3 text-center font-semibold text-gray-400">Gaveta</th>
+                          <th className="p-3 text-center font-semibold text-gray-400">Posición</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {registrations.turn_1.data.map((l, i) => (
+                          <tr key={i} className="border-b border-gray-800">
+                            <td className="p-3 text-gray-400">{l.num_empleado}</td>
+                            <td className="p-3 text-gray-300">{l.full_name}</td>
+                            <td className="p-3 text-center text-white font-bold text-lg">{l.gaveta || '-'}</td>
+                            <td className="p-3 text-center text-white font-bold text-lg">{l.posicion || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
                     </table>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">Total: {registrations.turn_1.registrations}</p>
+                  <p className="mt-3 text-sm text-gray-500">Total: {registrations.turn_1.registrations}</p>
                 </div>
-                <div className="mb-6">
-                  <h4 className="font-light text-lg mb-2 text-gray-200">Turno Tarde</h4>
-                  <p className="text-xs text-gray-500 mb-2">{registrations.turn_2.time}</p>
-                  <div className="bg-gray-900 rounded-sm border border-gray-800 overflow-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b border-gray-800 bg-gray-900"><tr><th className="p-2 text-left font-medium text-gray-400">Num Empleado</th><th className="p-2 text-left font-medium text-gray-400">Nombre</th></tr></thead>
-                      <tbody>{registrations.turn_2.data.map((l, i) => <tr key={i} className="border-b border-gray-800"><td className="p-2 text-gray-400">{l.num_empleado}</td><td className="p-2 text-gray-400">{l.full_name}</td></tr>)}</tbody>
+                <div className="mb-8">
+                  <h4 className="font-light text-2xl mb-3 text-gray-200">Turno Tarde</h4>
+                  <p className="text-sm text-gray-500 mb-3">{registrations.turn_2.time}</p>
+                  <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-auto">
+                    <table className="w-full text-base">
+                      <thead className="border-b border-gray-800 bg-gray-900">
+                        <tr>
+                          <th className="p-3 text-left font-semibold text-gray-400">Num Empleado</th>
+                          <th className="p-3 text-left font-semibold text-gray-400">Nombre</th>
+                          <th className="p-3 text-center font-semibold text-gray-400">Gaveta</th>
+                          <th className="p-3 text-center font-semibold text-gray-400">Posición</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {registrations.turn_2.data.map((l, i) => (
+                          <tr key={i} className="border-b border-gray-800">
+                            <td className="p-3 text-gray-400">{l.num_empleado}</td>
+                            <td className="p-3 text-gray-300">{l.full_name}</td>
+                            <td className="p-3 text-center text-white font-bold text-lg">{l.gaveta || '-'}</td>
+                            <td className="p-3 text-center text-white font-bold text-lg">{l.posicion || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
                     </table>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">Total: {registrations.turn_2.registrations}</p>
+                  <p className="mt-3 text-sm text-gray-500">Total: {registrations.turn_2.registrations}</p>
                 </div>
-                <div className="text-center bg-gray-900 p-4 rounded-sm border border-gray-800 font-light text-sm">Total Día: <span className="text-gray-300">{registrations.total}</span></div>
+                <div className="text-center bg-gray-900 p-6 rounded-lg border border-gray-800 font-light text-lg">Total Día: <span className="text-gray-300 font-semibold">{registrations.total}</span></div>
               </div>
             )}
           </div>

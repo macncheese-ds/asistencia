@@ -35,6 +35,11 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+// Gaveta configuration
+const GAVETAS_COUNT = 2;
+const POSITIONS_PER_GAVETA = 36;
+const TOTAL_POSITIONS = GAVETAS_COUNT * POSITIONS_PER_GAVETA; // 72 total
+
 // Helper: Check if current time is within allowed windows
 // Allowed: 7:50-8:30 AM and 7:50-8:30 PM
 function isWithinAccessWindow() {
@@ -69,6 +74,26 @@ function getCurrentTurnName() {
   return hour >= 7 && hour < 14 ? 'TURNO MAÑANA' : 'TURNO TARDE';
 }
 
+// Helper: Calculate next gaveta and posicion for current turn today
+async function getNextGavetaPosicion(turn, today) {
+  // Count how many scans exist for this turn today (these already have positions assigned)
+  const [rows] = await asistenciaPool.query(
+    'SELECT COUNT(*) as count FROM assistance_logs WHERE DATE(scan_time) = ? AND turn = ?',
+    [today, turn]
+  );
+  
+  const currentCount = rows[0].count;
+  
+  // If all positions are filled, cycle back
+  const slotIndex = currentCount % TOTAL_POSITIONS;
+  
+  // Calculate gaveta (1-based) and posicion (1-based)
+  const gaveta = Math.floor(slotIndex / POSITIONS_PER_GAVETA) + 1;
+  const posicion = (slotIndex % POSITIONS_PER_GAVETA) + 1;
+  
+  return { gaveta, posicion };
+}
+
 // Init DB
 async function initDB() {
   let initialized = false;
@@ -93,6 +118,8 @@ async function initDB() {
           full_name VARCHAR(255) NOT NULL,
           area VARCHAR(255),
           turn INT DEFAULT 1,
+          gaveta INT DEFAULT NULL,
+          posicion INT DEFAULT NULL,
           scan_time DATETIME DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_num_empleado (num_empleado),
           INDEX idx_scan_time (scan_time),
@@ -101,6 +128,28 @@ async function initDB() {
         )
       `);
       console.log('[DB Init] assistance_logs table created/verified');
+      
+      // Add gaveta and posicion columns if they don't exist (migration for existing tables)
+      try {
+        await asistConn.query('ALTER TABLE assistance_logs ADD COLUMN gaveta INT DEFAULT NULL AFTER turn');
+        console.log('[DB Init] Added gaveta column');
+      } catch (e) {
+        // Column already exists, ignore
+        if (!e.message.includes('Duplicate column')) {
+          console.log('[DB Init] gaveta column already exists');
+        }
+      }
+      
+      try {
+        await asistConn.query('ALTER TABLE assistance_logs ADD COLUMN posicion INT DEFAULT NULL AFTER gaveta');
+        console.log('[DB Init] Added posicion column');
+      } catch (e) {
+        // Column already exists, ignore
+        if (!e.message.includes('Duplicate column')) {
+          console.log('[DB Init] posicion column already exists');
+        }
+      }
+      
       await asistConn.end();
       
       initialized = true;
@@ -323,14 +372,17 @@ const handleAttendanceLog = async (req, res) => {
           });
         }
         
-        // Insert the new record
+        // Calculate next gaveta and posicion
+        const { gaveta, posicion } = await getNextGavetaPosicion(turn, today);
+        
+        // Insert the new record with gaveta and posicion
         await connection.query(
-          'INSERT INTO assistance_logs (num_empleado, full_name, area, turn) VALUES (?, ?, ?, ?)',
-          [unumber, name, area, turn]
+          'INSERT INTO assistance_logs (num_empleado, full_name, area, turn, gaveta, posicion) VALUES (?, ?, ?, ?, ?, ?)',
+          [unumber, name, area, turn, gaveta, posicion]
         );
         connection.release();
 
-        console.log(`Success: Registered ${unumber} - ${name} for turn ${turn}`);
+        console.log(`Success: Registered ${unumber} - ${name} for turn ${turn} | Gaveta ${gaveta}, Posición ${posicion}`);
         res.json({ 
           message: 'Asistencia registrada', 
           user: { 
@@ -339,6 +391,8 @@ const handleAttendanceLog = async (req, res) => {
             rol,
             area,
             turn: turn,
+            gaveta,
+            posicion,
             date: new Date() 
           }
         });
@@ -403,7 +457,7 @@ app.post('/api/registrations/today', async (req, res) => {
     
     // Query logs for the specified date, filtered by user's area
     const [rawLogs] = await asistenciaPool.query(
-      'SELECT num_empleado, full_name, area, scan_time FROM assistance_logs WHERE DATE(scan_time) = ? AND area = ? ORDER BY scan_time',
+      'SELECT num_empleado, full_name, area, gaveta, posicion, scan_time FROM assistance_logs WHERE DATE(scan_time) = ? AND area = ? ORDER BY scan_time',
       [searchDate, userArea]
     );
 
@@ -497,7 +551,7 @@ app.post('/api/registrations/download', async (req, res) => {
     
     // Query all logs for the date and area
     const [rawLogsData] = await asistenciaPool.query(
-      'SELECT num_empleado, full_name, area, scan_time FROM assistance_logs WHERE DATE(scan_time) = ? AND area = ? ORDER BY scan_time',
+      'SELECT num_empleado, full_name, area, gaveta, posicion, scan_time FROM assistance_logs WHERE DATE(scan_time) = ? AND area = ? ORDER BY scan_time',
       [searchDate, userArea]
     );
 
@@ -516,7 +570,7 @@ app.post('/api/registrations/download', async (req, res) => {
     // Create Excel workbook
     const workbook = XLSX.utils.book_new();
     const worksheetData = [
-      ['Area', 'Num Empleado', 'Nombre', 'Turno']
+      ['Area', 'Num Empleado', 'Nombre', 'Gaveta', 'Posición', 'Turno']
     ];
 
     logs.forEach(log => {
@@ -527,6 +581,8 @@ app.post('/api/registrations/download', async (req, res) => {
         log.area || '',
         log.num_empleado,
         log.full_name,
+        log.gaveta || '',
+        log.posicion || '',
         turnName
       ]);
     });
@@ -539,6 +595,8 @@ app.post('/api/registrations/download', async (req, res) => {
       { wch: 18 },
       { wch: 15 },
       { wch: 25 },
+      { wch: 10 },
+      { wch: 10 },
       { wch: 12 }
     ];
 

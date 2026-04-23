@@ -14,12 +14,20 @@ CREATE TABLE IF NOT EXISTS `assistance_logs` (
   `full_name` VARCHAR(255) NOT NULL,
   `area` VARCHAR(255),
   `turn` INT DEFAULT 1,
+  `gaveta` INT DEFAULT NULL,
+  `posicion` INT DEFAULT NULL,
   `scan_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_num_empleado` (`num_empleado`),
   INDEX `idx_scan_time` (`scan_time`),
   INDEX `idx_turn` (`turn`),
-  INDEX `idx_daily_scan` (`num_empleado`, `scan_time`, `turn`)
+  INDEX `idx_daily_scan` (`num_empleado`, `scan_time`, `turn`),
+  INDEX `idx_gaveta_posicion` (`gaveta`, `posicion`, `scan_time`, `turn`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migration: Add gaveta and posicion columns if they don't exist
+-- Run this if the table already exists without these columns
+ALTER TABLE `assistance_logs` ADD COLUMN IF NOT EXISTS `gaveta` INT DEFAULT NULL AFTER `turn`;
+ALTER TABLE `assistance_logs` ADD COLUMN IF NOT EXISTS `posicion` INT DEFAULT NULL AFTER `gaveta`;
 
 -- Insert sample data (Optional - for testing)
 -- Uncomment the following lines to insert test records
