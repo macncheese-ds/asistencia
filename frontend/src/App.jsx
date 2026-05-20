@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
+import TxtComponent from "./TxtComponent";
 
 // Configure axios for CORS
 axios.defaults.headers.common["Content-Type"] = "application/json";
@@ -15,6 +16,7 @@ function formatScanTime(date) {
 function App() {
   const [scannedData, setScannedData] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [showTxtModal, setShowTxtModal] = useState(false);
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -55,13 +57,13 @@ function App() {
   }, [API_BASE]);
 
   useEffect(() => {
-    if (!showModal) {
+    if (!showModal && !showTxtModal) {
       const interval = setInterval(() => {
         if (inputRef.current) inputRef.current.focus();
       }, 1000);
       return () => clearInterval(interval);
     }
-  }, [showModal]);
+  }, [showModal, showTxtModal]);
 
   useEffect(() => {
     if (scanModal) {
@@ -158,6 +160,8 @@ function App() {
 
   return (
     <div className="min-h-screen bg-black text-white p-4">
+      {showTxtModal && <TxtComponent onClose={() => setShowTxtModal(false)} />}
+      
       {scanModal && (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 animate-fade-in">
           <div className={`bg-gray-950 p-8 md:p-12 rounded-lg shadow-2xl border-2 text-center w-full max-w-xl mx-4 animate-zoom-in ${
@@ -213,9 +217,14 @@ function App() {
         <div className="max-w-3xl mx-auto">
           <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-6">
             <h1 className="text-4xl font-light tracking-tight">Control Asistencia</h1>
-            <button onClick={handleOpenModal} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">
-              Reportes
-            </button>
+            <div className="flex gap-3">
+              <button onClick={() => setShowTxtModal(true)} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">
+                Txt
+              </button>
+              <button onClick={handleOpenModal} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">
+                Reportes
+              </button>
+            </div>
           </div>
           <div className={`p-6 border-b mb-8 text-center ${currentTurn.withinWindow ? "border-emerald-800" : "border-gray-700"}`}>
             <h2 className="text-2xl font-light text-gray-200">{currentTurn.name}</h2>

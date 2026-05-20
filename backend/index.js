@@ -5,6 +5,7 @@ const XLSX = require('xlsx');
 const bcryptjs = require('bcryptjs');
 require('dotenv').config();
 const { asistenciaPool, credencialesPool } = require('./db');
+const adminConfig = require('./admin-config');
 
 const app = express();
 
@@ -41,20 +42,20 @@ const POSITIONS_PER_GAVETA = 36;
 const TOTAL_POSITIONS = GAVETAS_COUNT * POSITIONS_PER_GAVETA; // 72 total
 
 // Helper: Check if current time is within allowed windows
-// Allowed: 7:50-8:30 AM and 7:50-8:30 PM
+// Allowed: 6:50-10:00 AM and 6:50-10:00 PM
 function isWithinAccessWindow() {
   const now = new Date();
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const totalMinutes = hours * 60 + minutes;
   
-  // Morning window: 7:50 (470) to 8:30 (510)
-  const morningStart = 7 * 60 + 50;  // 470 minutes
-  const morningEnd = 8 * 60 + 30;    // 510 minutes
+  // Morning window: 6:50 (410) to 10:00 (600)
+  const morningStart = 6 * 60 + 50;  // 410 minutes
+  const morningEnd = 10 * 60 + 0;    // 600 minutes
   
-  // Evening window: 19:50 (1190) to 20:30 (1230)
-  const eveningStart = 19 * 60 + 50; // 1190 minutes
-  const eveningEnd = 20 * 60 + 30;   // 1230 minutes
+  // Evening window: 18:50 (1130) to 10:00 PM (1320)
+  const eveningStart = 18 * 60 + 50; // 1130 minutes
+  const eveningEnd = 22 * 60 + 0;    // 1320 minutes
   
   return (totalMinutes >= morningStart && totalMinutes <= morningEnd) ||
          (totalMinutes >= eveningStart && totalMinutes <= eveningEnd);
@@ -317,7 +318,7 @@ const handleAttendanceLog = async (req, res) => {
   // Check time window
   if (!isWithinAccessWindow()) {
     return res.status(403).json({ 
-      error: 'Acceso fuera del horario permitido. Permitido: 7:50-8:30 AM y 7:50-8:30 PM' 
+      error: 'Acceso fuera del horario permitido. Permitido: 7:50-10:00 AM y 7:50-10:00 PM' 
     });
   }
 
@@ -495,12 +496,12 @@ app.post('/api/registrations/today', async (req, res) => {
       date: searchDate,
       userArea: userArea,
       turn_1: {
-        time: '7:50 - 8:30 AM',
+        time: '7:50 - 10:00 AM',
         data: turn1Logs,
         registrations: turn1Logs.length
       },
       turn_2: {
-        time: '7:50 - 8:30 PM',
+        time: '7:50 - 10:00 PM',
         data: turn2Logs,
         registrations: turn2Logs.length
       },
@@ -609,6 +610,297 @@ app.post('/api/registrations/download', async (req, res) => {
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Error al descargar registros' });
+  }
+});
+
+// TXT FEATURE ENDPOINTS
+// Admin endpoint - Get all TXT records (edit mode)
+app.post('/api/txt/admin/auth', async (req, res) => {
+  const { num_empleado, password } = req.body;
+  
+  if (!num_empleado || !password) {
+    return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
+  }
+
+  try {
+    // Check admin credentials from config
+    const isValidAdmin = num_empleado === adminConfig.adminUser.num_empleado && 
+                        password === adminConfig.adminUser.password;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        num_empleado: adminConfig.adminUser.num_empleado,
+        nombre: adminConfig.adminUser.nombre,
+        rol: 'admin'
+      }
+    });
+  } catch (error) {
+    console.error('Admin auth error:', error);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+
+// Get all TXT records (admin only)
+app.post('/api/txt/admin/records', async (req, res) => {
+  const { num_empleado, password } = req.body;
+  
+  if (!num_empleado || !password) {
+    return res.status(400).json({ error: 'Autenticación requerida' });
+  }
+
+  try {
+    // Verify admin credentials
+    const isValidAdmin = num_empleado === adminConfig.adminUser.num_empleado && 
+                        password === adminConfig.adminUser.password;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Query all txt records
+    const [records] = await asistenciaPool.query(
+      'SELECT * FROM txt ORDER BY empleado, week DESC'
+    );
+
+    // Group records by empleado
+    const grouped = {};
+    records.forEach(record => {
+      if (!grouped[record.empleado]) {
+        grouped[record.empleado] = [];
+      }
+      grouped[record.empleado].push(record);
+    });
+
+    res.json({
+      success: true,
+      records: records,
+      grouped: grouped
+    });
+  } catch (error) {
+    console.error('Error fetching txt records:', error);
+    res.status(500).json({ error: 'Error al obtener registros' });
+  }
+});
+
+// Add or update TXT record - HOURS GENERATED (admin only)
+app.post('/api/txt/admin/add', async (req, res) => {
+  const { num_empleado, password, empleado, week, hours, minutes } = req.body;
+  
+  if (!num_empleado || !password) {
+    return res.status(400).json({ error: 'Autenticación requerida' });
+  }
+
+  if (!empleado || !week || (hours === undefined && minutes === undefined)) {
+    return res.status(400).json({ error: 'Empleado, semana y horas/minutos son requeridos' });
+  }
+
+  try {
+    // Verify admin credentials
+    const isValidAdmin = num_empleado === adminConfig.adminUser.num_empleado && 
+                        password === adminConfig.adminUser.password;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Convert hours and minutes to total minutes
+    const totalMinutes = (parseInt(hours) || 0) * 60 + (parseInt(minutes) || 0);
+
+    if (totalMinutes === 0) {
+      return res.status(400).json({ error: 'Debe ingresar al menos algunos minutos' });
+    }
+
+    // Check if record exists
+    const [existing] = await asistenciaPool.query(
+      'SELECT id, hours FROM txt WHERE empleado = ? AND week = ?',
+      [empleado, week]
+    );
+
+    if (existing.length > 0) {
+      // Update existing record - SUM the minutes
+      const currentMinutes = existing[0].hours;
+      const updatedMinutes = currentMinutes + totalMinutes;
+      
+      await asistenciaPool.query(
+        'UPDATE txt SET hours = ? WHERE empleado = ? AND week = ?',
+        [updatedMinutes, empleado, week]
+      );
+      
+      res.json({
+        success: true,
+        message: `Registro actualizado - Total: ${totalMinutes} minutos sumados`
+      });
+    } else {
+      // Insert new record
+      await asistenciaPool.query(
+        'INSERT INTO txt (empleado, week, hours, usadas) VALUES (?, ?, ?, 0)',
+        [empleado, week, totalMinutes]
+      );
+      
+      res.json({
+        success: true,
+        message: 'Registro añadido'
+      });
+    }
+  } catch (error) {
+    console.error('Error adding txt record:', error);
+    res.status(500).json({ error: 'Error al guardar registro' });
+  }
+});
+
+// Add or update TXT record - HOURS USED (admin only)
+app.post('/api/txt/admin/add-uso', async (req, res) => {
+  const { num_empleado, password, empleado, week, hours, minutes } = req.body;
+  
+  if (!num_empleado || !password) {
+    return res.status(400).json({ error: 'Autenticación requerida' });
+  }
+
+  if (!empleado || !week || (hours === undefined && minutes === undefined)) {
+    return res.status(400).json({ error: 'Empleado, semana y horas/minutos son requeridos' });
+  }
+
+  try {
+    // Verify admin credentials
+    const isValidAdmin = num_empleado === adminConfig.adminUser.num_empleado && 
+                        password === adminConfig.adminUser.password;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Convert hours and minutes to total minutes
+    const totalMinutes = (parseInt(hours) || 0) * 60 + (parseInt(minutes) || 0);
+
+    if (totalMinutes === 0) {
+      return res.status(400).json({ error: 'Debe ingresar al menos algunos minutos' });
+    }
+
+    // Check if record exists
+    const [existing] = await asistenciaPool.query(
+      'SELECT id, hours, usadas FROM txt WHERE empleado = ? AND week = ?',
+      [empleado, week]
+    );
+
+    if (existing.length === 0) {
+      // Create new record with 0 hours generated and the usage
+      await asistenciaPool.query(
+        'INSERT INTO txt (empleado, week, hours, usadas) VALUES (?, ?, ?, ?)',
+        [empleado, week, 0, totalMinutes]
+      );
+    } else {
+      // Update existing record - SUM the used minutes (only update usadas)
+      const currentUsed = existing[0].usadas || 0;
+      const updatedUsed = currentUsed + totalMinutes;
+      
+      await asistenciaPool.query(
+        'UPDATE txt SET usadas = ? WHERE empleado = ? AND week = ?',
+        [updatedUsed, empleado, week]
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: `Uso registrado - Total: ${totalMinutes} minutos sumados`
+    });
+  } catch (error) {
+    console.error('Error adding txt usage:', error);
+    res.status(500).json({ error: 'Error al guardar uso' });
+  }
+});
+
+// Get TXT records for viewing (regular user)
+app.post('/api/txt/view', async (req, res) => {
+  const { num_empleado, pass_hash } = req.body;
+  
+  if (!num_empleado || !pass_hash) {
+    return res.status(400).json({ error: 'Empleado y contraseña requeridos' });
+  }
+
+  try {
+    // Verify user credentials in credenciales DB
+    const variants = generateSearchVariants(num_empleado);
+    const placeholders = variants.map(() => 'num_empleado = ?').join(' OR ');
+    const query = `SELECT pass_hash FROM users WHERE ${placeholders} LIMIT 1`;
+    
+    const [users] = await credencialesPool.query(query, variants);
+
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Verify password
+    let passHashStored = users[0].pass_hash;
+    if (typeof passHashStored !== 'string') {
+      passHashStored = String(passHashStored);
+    }
+    
+    const isPasswordValid = await bcryptjs.compare(pass_hash, passHashStored);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Get txt records for this empleado
+    const [records] = await asistenciaPool.query(
+      'SELECT * FROM txt WHERE empleado = ? ORDER BY week DESC',
+      [num_empleado]
+    );
+
+    // Calculate totals (generados - gastados)
+    let totalMinutes = 0;
+    let totalUsadas = 0;
+    records.forEach(record => {
+      totalMinutes += record.hours || 0;
+      totalUsadas += record.usadas || 0;
+    });
+    
+    const saldoMinutes = totalMinutes - totalUsadas;
+
+    res.json({
+      success: true,
+      empleado: num_empleado,
+      records: records,
+      totalMinutes: totalMinutes,
+      totalUsadas: totalUsadas,
+      saldoMinutes: saldoMinutes
+    });
+  } catch (error) {
+    console.error('Error fetching user txt records:', error);
+    res.status(500).json({ error: 'Error al obtener registros' });
+  }
+});
+
+// Delete TXT record (admin only)
+app.post('/api/txt/admin/delete', async (req, res) => {
+  const { num_empleado, password, recordId } = req.body;
+  
+  if (!num_empleado || !password || !recordId) {
+    return res.status(400).json({ error: 'Datos incompletos' });
+  }
+
+  try {
+    // Verify admin credentials
+    const isValidAdmin = num_empleado === adminConfig.adminUser.num_empleado && 
+                        password === adminConfig.adminUser.password;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    await asistenciaPool.query('DELETE FROM txt WHERE id = ?', [recordId]);
+
+    res.json({
+      success: true,
+      message: 'Registro eliminado'
+    });
+  } catch (error) {
+    console.error('Error deleting txt record:', error);
+    res.status(500).json({ error: 'Error al eliminar registro' });
   }
 });
 
