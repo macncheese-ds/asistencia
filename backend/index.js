@@ -875,6 +875,39 @@ app.post('/api/txt/view', async (req, res) => {
   }
 });
 
+// Add or update comment for TXT record (admin only)
+app.post('/api/txt/admin/comment', async (req, res) => {
+  const { num_empleado, password, recordId, comentarios } = req.body;
+  
+  if (!num_empleado || !password || !recordId) {
+    return res.status(400).json({ error: 'Datos incompletos' });
+  }
+
+  try {
+    // Verify admin credentials
+    const isValidAdmin = num_empleado === adminConfig.adminUser.num_empleado && 
+                        password === adminConfig.adminUser.password;
+    
+    if (!isValidAdmin) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Update comment for the record
+    await asistenciaPool.query(
+      'UPDATE txt SET comentarios = ? WHERE id = ?',
+      [comentarios || null, recordId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Comentario guardado'
+    });
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    res.status(500).json({ error: 'Error al guardar comentario' });
+  }
+});
+
 // Delete TXT record (admin only)
 app.post('/api/txt/admin/delete', async (req, res) => {
   const { num_empleado, password, recordId } = req.body;
@@ -901,6 +934,79 @@ app.post('/api/txt/admin/delete', async (req, res) => {
   } catch (error) {
     console.error('Error deleting txt record:', error);
     res.status(500).json({ error: 'Error al eliminar registro' });
+  }
+});
+
+// Viewer endpoint - Get all TXT records for all employees (viewer only)
+app.post('/api/txt/viewer/auth', async (req, res) => {
+  const { num_empleado, password } = req.body;
+  
+  if (!num_empleado || !password) {
+    return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
+  }
+
+  try {
+    // Check viewer credentials from config
+    const isValidViewer = num_empleado === adminConfig.viewerUser.num_empleado && 
+                         password === adminConfig.viewerUser.password;
+    
+    if (!isValidViewer) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        num_empleado: adminConfig.viewerUser.num_empleado,
+        nombre: adminConfig.viewerUser.nombre,
+        rol: 'viewer'
+      }
+    });
+  } catch (error) {
+    console.error('Viewer auth error:', error);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+
+// Get all TXT records for viewing (viewer only - reads all employees)
+app.post('/api/txt/viewer/records', async (req, res) => {
+  const { num_empleado, password } = req.body;
+  
+  if (!num_empleado || !password) {
+    return res.status(400).json({ error: 'Autenticación requerida' });
+  }
+
+  try {
+    // Verify viewer credentials
+    const isValidViewer = num_empleado === adminConfig.viewerUser.num_empleado && 
+                         password === adminConfig.viewerUser.password;
+    
+    if (!isValidViewer) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Query all txt records
+    const [records] = await asistenciaPool.query(
+      'SELECT * FROM txt ORDER BY empleado, week DESC'
+    );
+
+    // Group records by empleado
+    const grouped = {};
+    records.forEach(record => {
+      if (!grouped[record.empleado]) {
+        grouped[record.empleado] = [];
+      }
+      grouped[record.empleado].push(record);
+    });
+
+    res.json({
+      success: true,
+      records: records,
+      grouped: grouped
+    });
+  } catch (error) {
+    console.error('Error fetching txt records for viewer:', error);
+    res.status(500).json({ error: 'Error al obtener registros' });
   }
 });
 

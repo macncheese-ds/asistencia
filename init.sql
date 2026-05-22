@@ -63,6 +63,25 @@ FROM `assistance_logs`
 GROUP BY `num_empleado`, `full_name`, DATE(`scan_time`)
 ORDER BY `attendance_date` DESC, `num_empleado` ASC;
 
+-- Create the txt table for time tracking and comments
+CREATE TABLE IF NOT EXISTS `txt` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `empleado` VARCHAR(255) NOT NULL,
+  `week` INT NOT NULL,
+  `hours` INT DEFAULT 0,
+  `usadas` INT DEFAULT 0,
+  `comentarios` VARCHAR(250),
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `unique_empleado_week` (`empleado`, `week`),
+  INDEX `idx_empleado` (`empleado`),
+  INDEX `idx_week` (`week`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migration: Add comentarios column if it doesn't exist
+ALTER TABLE `txt` ADD COLUMN IF NOT EXISTS `comentarios` VARCHAR(250) AFTER `usadas`;
+
 -- Verify the tables were created
 SELECT 'Asistencia database setup completed successfully!' AS status;
 SELECT COUNT(*) AS 'assistance_logs_count' FROM `assistance_logs`;
+SELECT COUNT(*) AS 'txt_count' FROM `txt`;
