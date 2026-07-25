@@ -667,6 +667,51 @@ app.post('/api/txt/admin/records', async (req, res) => {
       'SELECT * FROM txt ORDER BY empleado, week DESC'
     );
 
+    // Get unique employee numbers
+    const empleadoNumbers = [...new Set(records.map(r => r.empleado).filter(Boolean))];
+    
+    // Fetch employee names from credenciales DB and assistance_logs
+    let empleadoNames = {};
+    if (empleadoNumbers.length > 0) {
+      // Try to get names from credenciales DB (users table)
+      const placeholders = empleadoNumbers.map(() => '?').join(',');
+      try {
+        const [nameResults] = await credencialesPool.query(
+          `SELECT num_empleado, nombre FROM users WHERE num_empleado IN (${placeholders})`,
+          empleadoNumbers
+        );
+        nameResults.forEach(row => {
+          empleadoNames[row.num_empleado] = row.nombre;
+        });
+      } catch (err) {
+        console.log('Could not fetch names from credenciales DB');
+      }
+      
+      // For any missing names, try to get them from assistance_logs (asistencia DB)
+      const missingEmpleados = empleadoNumbers.filter(num => !empleadoNames[num]);
+      if (missingEmpleados.length > 0) {
+        const missingPlaceholders = missingEmpleados.map(() => '?').join(',');
+        try {
+          const [assistanceResults] = await asistenciaPool.query(
+            `SELECT DISTINCT num_empleado, full_name FROM assistance_logs WHERE num_empleado IN (${missingPlaceholders}) LIMIT 1000`,
+            missingEmpleados
+          );
+          assistanceResults.forEach(row => {
+            empleadoNames[row.num_empleado] = row.full_name;
+          });
+        } catch (err) {
+          console.log('Could not fetch names from assistance_logs');
+        }
+      }
+      
+      // For still missing names, use the number as fallback
+      empleadoNumbers.forEach(num => {
+        if (!empleadoNames[num]) {
+          empleadoNames[num] = num; // Use employee number as fallback
+        }
+      });
+    }
+
     // Group records by empleado
     const grouped = {};
     records.forEach(record => {
@@ -679,7 +724,8 @@ app.post('/api/txt/admin/records', async (req, res) => {
     res.json({
       success: true,
       records: records,
-      grouped: grouped
+      grouped: grouped,
+      empleadoNames: empleadoNames
     });
   } catch (error) {
     console.error('Error fetching txt records:', error);
@@ -689,7 +735,7 @@ app.post('/api/txt/admin/records', async (req, res) => {
 
 // Add or update TXT record - HOURS GENERATED (admin only)
 app.post('/api/txt/admin/add', async (req, res) => {
-  const { num_empleado, password, empleado, week, hours, minutes } = req.body;
+  const { num_empleado, password, empleado, week, hours, minutes, comentarios } = req.body;
   
   if (!num_empleado || !password) {
     return res.status(400).json({ error: 'Autenticación requerida' });
@@ -726,20 +772,25 @@ app.post('/api/txt/admin/add', async (req, res) => {
       const currentMinutes = existing[0].hours;
       const updatedMinutes = currentMinutes + totalMinutes;
       
-      await asistenciaPool.query(
-        'UPDATE txt SET hours = ? WHERE empleado = ? AND week = ?',
-        [updatedMinutes, empleado, week]
-      );
+      const updateQuery = comentarios 
+        ? 'UPDATE txt SET hours = ?, comentarios = ? WHERE empleado = ? AND week = ?'
+        : 'UPDATE txt SET hours = ? WHERE empleado = ? AND week = ?';
+      
+      const updateParams = comentarios 
+        ? [updatedMinutes, comentarios, empleado, week]
+        : [updatedMinutes, empleado, week];
+      
+      await asistenciaPool.query(updateQuery, updateParams);
       
       res.json({
         success: true,
         message: `Registro actualizado - Total: ${totalMinutes} minutos sumados`
       });
     } else {
-      // Insert new record
+      // Insert new record with optional comment
       await asistenciaPool.query(
-        'INSERT INTO txt (empleado, week, hours, usadas) VALUES (?, ?, ?, 0)',
-        [empleado, week, totalMinutes]
+        'INSERT INTO txt (empleado, week, hours, usadas, comentarios) VALUES (?, ?, ?, 0, ?)',
+        [empleado, week, totalMinutes, comentarios || null]
       );
       
       res.json({
@@ -826,7 +877,7 @@ app.post('/api/txt/view', async (req, res) => {
     // Verify user credentials in credenciales DB
     const variants = generateSearchVariants(num_empleado);
     const placeholders = variants.map(() => 'num_empleado = ?').join(' OR ');
-    const query = `SELECT pass_hash FROM users WHERE ${placeholders} LIMIT 1`;
+    const query = `SELECT pass_hash, nombre FROM users WHERE ${placeholders} LIMIT 1`;
     
     const [users] = await credencialesPool.query(query, variants);
 
@@ -863,7 +914,10 @@ app.post('/api/txt/view', async (req, res) => {
 
     res.json({
       success: true,
-      empleado: num_empleado,
+      user: {
+        num_empleado: num_empleado,
+        nombre: users[0].nombre || num_empleado
+      },
       records: records,
       totalMinutes: totalMinutes,
       totalUsadas: totalUsadas,
@@ -990,6 +1044,51 @@ app.post('/api/txt/viewer/records', async (req, res) => {
       'SELECT * FROM txt ORDER BY empleado, week DESC'
     );
 
+    // Get unique employee numbers
+    const empleadoNumbers = [...new Set(records.map(r => r.empleado).filter(Boolean))];
+    
+    // Fetch employee names from credenciales DB and assistance_logs
+    let empleadoNames = {};
+    if (empleadoNumbers.length > 0) {
+      // Try to get names from credenciales DB (users table)
+      const placeholders = empleadoNumbers.map(() => '?').join(',');
+      try {
+        const [nameResults] = await credencialesPool.query(
+          `SELECT num_empleado, nombre FROM users WHERE num_empleado IN (${placeholders})`,
+          empleadoNumbers
+        );
+        nameResults.forEach(row => {
+          empleadoNames[row.num_empleado] = row.nombre;
+        });
+      } catch (err) {
+        console.log('Could not fetch names from credenciales DB');
+      }
+      
+      // For any missing names, try to get them from assistance_logs (asistencia DB)
+      const missingEmpleados = empleadoNumbers.filter(num => !empleadoNames[num]);
+      if (missingEmpleados.length > 0) {
+        const missingPlaceholders = missingEmpleados.map(() => '?').join(',');
+        try {
+          const [assistanceResults] = await asistenciaPool.query(
+            `SELECT DISTINCT num_empleado, full_name FROM assistance_logs WHERE num_empleado IN (${missingPlaceholders}) LIMIT 1000`,
+            missingEmpleados
+          );
+          assistanceResults.forEach(row => {
+            empleadoNames[row.num_empleado] = row.full_name;
+          });
+        } catch (err) {
+          console.log('Could not fetch names from assistance_logs');
+        }
+      }
+      
+      // For still missing names, use the number as fallback
+      empleadoNumbers.forEach(num => {
+        if (!empleadoNames[num]) {
+          empleadoNames[num] = num; // Use employee number as fallback
+        }
+      });
+    }
+
     // Group records by empleado
     const grouped = {};
     records.forEach(record => {
@@ -1002,7 +1101,8 @@ app.post('/api/txt/viewer/records', async (req, res) => {
     res.json({
       success: true,
       records: records,
-      grouped: grouped
+      grouped: grouped,
+      empleadoNames: empleadoNames
     });
   } catch (error) {
     console.error('Error fetching txt records for viewer:', error);

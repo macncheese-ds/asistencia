@@ -47,12 +47,14 @@ function TxtComponent({ onClose }) {
   // Viewer mode data (all employees)
   const [allRecords, setAllRecords] = useState([]);
   const [viewerGrouped, setViewerGrouped] = useState({});
+  const [empleadoNames, setEmpleadoNames] = useState({});
   
   // Form for adding/editing records
   const [newRecord, setNewRecord] = useState({
     week: "",
     hours: "",
-    minutes: ""
+    minutes: "",
+    comentarios: ""
   });
   
   // Comment editing state
@@ -107,6 +109,7 @@ function TxtComponent({ onClose }) {
           if (recordsResponse.data.success) {
             setAllRecords(recordsResponse.data.records);
             setViewerGrouped(recordsResponse.data.grouped);
+            setEmpleadoNames(recordsResponse.data.empleadoNames || {});
           }
           return;
         }
@@ -120,7 +123,7 @@ function TxtComponent({ onClose }) {
 
           if (userResponse.data.success) {
             setMode("view");
-            setCurrentUser({ num_empleado });
+            setCurrentUser(userResponse.data.user);
             setIsAuthenticated(true);
             setRecords(userResponse.data.records);
             setTotalMinutes(userResponse.data.totalMinutes);
@@ -155,6 +158,7 @@ function TxtComponent({ onClose }) {
       if (response.data.success) {
         const empleadoRecords = response.data.grouped[adminEmpleado] || [];
         setAdminEmpleadoData(empleadoRecords);
+        setEmpleadoNames(response.data.empleadoNames || {});
         
         // Calculate total saldo (generados - gastados)
         const totalSaldo = empleadoRecords.reduce((sum, r) => sum + (r.hours || 0) - (r.usadas || 0), 0);
@@ -192,12 +196,13 @@ function TxtComponent({ onClose }) {
         empleado: adminEmpleado,
         week: parseInt(newRecord.week),
         hours,
-        minutes
+        minutes,
+        comentarios: newRecord.comentarios || null
       });
 
       if (response.data.success) {
         setSuccessMessage(response.data.message);
-        setNewRecord({ week: "", hours: "", minutes: "" });
+        setNewRecord({ week: "", hours: "", minutes: "", comentarios: "" });
         await handleSearchEmpleado();
         setTimeout(() => setSuccessMessage(""), 3000);
       }
@@ -305,7 +310,7 @@ function TxtComponent({ onClose }) {
     setAdminEmpleado("");
     setAdminEmpleadoData([]);
     setAdminEmpleadoTotal(0);
-    setNewRecord({ week: "", hours: "", minutes: "" });
+    setNewRecord({ week: "", hours: "", minutes: "", comentarios: "" });
     setEditingCommentId(null);
     setCommentText("");
     setAuthError("");
@@ -419,7 +424,7 @@ function TxtComponent({ onClose }) {
             {/* Add/Edit record */}
             {adminEmpleado && (
               <div className="bg-gray-900 border border-gray-800 p-6 rounded-lg mb-8">
-                <h3 className="text-xl font-light mb-6">Registro para {adminEmpleado}</h3>
+                <h3 className="text-xl font-light mb-6">Registro para {empleadoNames[adminEmpleado] ? `${empleadoNames[adminEmpleado]} (${adminEmpleado})` : adminEmpleado}</h3>
                 {formError && (
                   <div className="mb-4 border-l-2 border-red-800 bg-gray-800 text-red-400 p-3 text-sm">
                     {formError}
@@ -461,6 +466,16 @@ function TxtComponent({ onClose }) {
                       className="bg-gray-800 border border-gray-700 rounded-md p-3 text-white placeholder-gray-600 focus:outline-none focus:border-gray-500"
                     />
                   </div>
+                  <textarea
+                    value={newRecord.comentarios}
+                    onChange={(e) =>
+                      setNewRecord({ ...newRecord, comentarios: e.target.value })
+                    }
+                    placeholder="Comentario (opcional, máx 250 caracteres)"
+                    maxLength="250"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-md p-3 text-white placeholder-gray-600 focus:outline-none focus:border-gray-500 resize-none"
+                    rows="2"
+                  />
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
@@ -484,7 +499,7 @@ function TxtComponent({ onClose }) {
                   <div className="mt-8 pt-8 border-t border-gray-800">
                   <div className="flex justify-between items-center mb-4">
                       <h4 className="text-lg font-light text-gray-200">
-                        Registros de {adminEmpleado}
+                        Registros de {empleadoNames[adminEmpleado] ? `${empleadoNames[adminEmpleado]} (${adminEmpleado})` : adminEmpleado}
                       </h4>
                       <div className="space-y-1 text-right">
                         <div className="text-lg font-semibold" style={{color: adminEmpleadoTotal >= 0 ? '#10b981' : '#ef4444'}}>
@@ -621,7 +636,9 @@ function TxtComponent({ onClose }) {
                   return (
                     <div key={empleado} className="bg-gray-900 border border-gray-800 p-6 rounded-lg">
                       <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-800">
-                        <h3 className="text-xl font-light text-gray-200">{empleado}</h3>
+                        <h3 className="text-xl font-light text-gray-200">
+                          {empleadoNames[empleado] ? `${empleadoNames[empleado]} (${empleado})` : empleado}
+                        </h3>
                         <div className="text-right space-y-1">
                           <div className="text-sm text-gray-500">Total Saldo</div>
                           <div className={`text-lg font-semibold ${saldoIsNegative ? 'text-red-400' : 'text-emerald-400'}`}>
@@ -683,7 +700,7 @@ function TxtComponent({ onClose }) {
               <div>
                 <h2 className="text-3xl font-light">TXT - Mis Horas Extra</h2>
                 <p className="text-gray-500 text-sm mt-2">
-                  Empleado: {currentUser?.num_empleado}
+                  {currentUser?.nombre} <span className="text-gray-600">({currentUser?.num_empleado})</span>
                 </p>
               </div>
               <button
