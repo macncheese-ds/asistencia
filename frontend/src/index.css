@@ -1,3 +1,19 @@
 ﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased;
+  }
+  ::selection {
+    @apply bg-sky-500/30 text-white;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+    cursor: pointer;
+  }
+}

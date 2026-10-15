@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import TxtComponent from "./TxtComponent";
+import { APP_VERSION } from "./version";
 
 // Configure axios for CORS
 axios.defaults.headers.common["Content-Type"] = "application/json";
@@ -18,7 +19,7 @@ let nextScanId = 1;
 
 function EmployeeHeader({ name, num }) {
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 mb-6 text-center">
+    <div className="bg-slate-950/60 border border-white/5 ring-1 ring-white/5 rounded-2xl p-6 mb-6 text-center">
       <p className="text-4xl md:text-5xl font-extrabold text-white break-words leading-tight">{name}</p>
       <p className="text-2xl md:text-3xl font-bold text-sky-300 mt-3">No. {num}</p>
     </div>
@@ -203,7 +204,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
+    <div className="min-h-screen flex flex-col bg-slate-950 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 antialiased p-4 md:p-6">
       {showTxtModal && <TxtComponent onClose={() => setShowTxtModal(false)} />}
 
       {scanModal && (
@@ -265,31 +266,43 @@ function App() {
       )}
 
       {!showModal ? (
-        <div className="max-w-3xl mx-auto">
-          <div className="flex flex-wrap justify-between items-center gap-4 mb-8 pb-6 border-b border-slate-800">
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Control Asistencia</h1>
+        <div className="w-full max-w-3xl mx-auto flex-1">
+          <header className="flex flex-wrap justify-between items-center gap-4 mb-8">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-lg shadow-sky-900/50 flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">Control Asistencia</h1>
+                <p className="text-sm text-slate-400">Registro de entradas por badge</p>
+              </div>
+            </div>
             <div className="flex gap-3">
-              <button onClick={() => setShowTxtModal(true)} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-lg font-medium transition">
+              <button onClick={() => setShowTxtModal(true)} className="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-white px-5 py-2.5 rounded-xl text-base font-semibold transition duration-200 active:scale-[0.98]">
                 Txt
               </button>
-              <button onClick={handleOpenModal} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-lg font-medium transition">
+              <button onClick={handleOpenModal} className="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-white px-5 py-2.5 rounded-xl text-base font-semibold transition duration-200 active:scale-[0.98]">
                 Reportes
               </button>
             </div>
+          </header>
+          <div className={`rounded-2xl border p-6 mb-8 text-center bg-slate-900/70 backdrop-blur-xl shadow-xl shadow-black/30 transition duration-300 ${currentTurn.withinWindow ? "border-emerald-500/40 ring-1 ring-emerald-500/20" : "border-white/5"}`}>
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Turno actual</p>
+            <h2 className="text-2xl font-bold text-white">{currentTurn.name}</h2>
+            <span className={`inline-flex items-center gap-2 mt-4 px-3 py-1 rounded-full text-xs font-bold tracking-widest border ${currentTurn.withinWindow ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}>
+              <span className={`w-2 h-2 rounded-full ${currentTurn.withinWindow ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`}></span>
+              {currentTurn.withinWindow ? "ACTIVO" : "INACTIVO"}
+            </span>
           </div>
-          <div className={`rounded-2xl border p-6 mb-8 text-center bg-slate-900/80 ${currentTurn.withinWindow ? "border-emerald-500/50" : "border-slate-700"}`}>
-            <h2 className="text-2xl font-semibold text-slate-100">{currentTurn.name}</h2>
-            <p className={`mt-3 text-sm font-bold tracking-widest ${currentTurn.withinWindow ? "text-emerald-300" : "text-slate-400"}`}>
-              {currentTurn.withinWindow ? "● ACTIVO" : "○ INACTIVO"}
-            </p>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-800 shadow-xl shadow-black/40 p-8 md:p-12 rounded-2xl">
-            <h1 className="text-3xl font-semibold mb-8 text-center text-slate-100">Escanea Badge</h1>
+          <div className="bg-slate-900/70 backdrop-blur-xl border border-white/5 ring-1 ring-white/5 shadow-2xl shadow-black/50 p-8 md:p-12 rounded-3xl">
+            <h1 className="text-2xl font-semibold mb-8 text-center text-slate-100">Escanea tu badge</h1>
             <form onSubmit={handleScan}>
               <input
                 ref={inputRef}
                 type="text"
-                className={`w-full bg-slate-950 border-2 rounded-2xl p-5 text-center text-2xl text-white focus:outline-none focus:ring-4 focus:ring-sky-500/30 placeholder-slate-500 transition-all ${
+                className={`w-full bg-slate-950/80 border-2 rounded-2xl p-5 text-center text-2xl text-white focus:outline-none focus:ring-4 focus:ring-sky-500/20 placeholder-slate-500 transition-all duration-200 ${
                   isScanning ? 'border-slate-600 animate-pulse' : 'border-slate-700 focus:border-sky-500'
                 }`}
                 placeholder={isScanning ? "Procesando..." : "Escanea aqui..."}
@@ -311,8 +324,8 @@ function App() {
           </div>
         </div>
       ) : (
-        <div className="max-w-5xl mx-auto">
-          <div className="bg-slate-900/80 border border-slate-800 shadow-xl shadow-black/40 p-6 md:p-8 rounded-2xl">
+        <div className="w-full max-w-5xl mx-auto flex-1">
+          <div className="bg-slate-900/70 backdrop-blur-xl border border-white/5 ring-1 ring-white/5 shadow-2xl shadow-black/50 p-6 md:p-8 rounded-3xl">
             <div className="flex flex-wrap justify-between items-center gap-4 mb-8 border-b border-slate-800 pb-6">
               <h2 className="text-3xl font-semibold tracking-tight">Reportes</h2>
               <button onClick={handleCloseModal} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-lg font-medium transition">Cerrar</button>
@@ -397,6 +410,10 @@ function App() {
           </div>
         </div>
       )}
+
+      <footer className="mt-8 pt-4 text-center text-xs tracking-wider text-slate-500">
+        Control Asistencia · Versión {APP_VERSION}
+      </footer>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { ui } from "./ui";
+import { APP_VERSION } from "./version";
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:3113/api`;
 
@@ -119,7 +120,7 @@ function Shell({ title, subtitle, actions, onClose, children }) {
   return (
     <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/90 backdrop-blur-sm p-4 md:p-8">
       <div className={`max-w-5xl mx-auto ${ui.card} p-6 md:p-8`}>
-        <div className="flex flex-wrap justify-between items-center gap-4 mb-8 border-b border-slate-800 pb-6">
+        <div className="flex flex-wrap justify-between items-center gap-4 mb-8 border-b border-white/5 pb-6">
           <div>
             <h2 className={ui.heading}>{title}</h2>
             {subtitle && <p className={`${ui.muted} mt-1`}>{subtitle}</p>}
@@ -130,6 +131,9 @@ function Shell({ title, subtitle, actions, onClose, children }) {
           </div>
         </div>
         {children}
+        <p className="mt-8 pt-4 border-t border-white/5 text-center text-xs tracking-wider text-slate-500">
+          Control Asistencia · Versión {APP_VERSION}
+        </p>
       </div>
     </div>
   );
@@ -137,7 +141,7 @@ function Shell({ title, subtitle, actions, onClose, children }) {
 
 function Metric({ label, value, tone }) {
   return (
-    <div className={`bg-slate-900 border rounded-xl p-5 ${METRIC_TONES[tone]}`}>
+    <div className={`bg-slate-900/60 border rounded-2xl p-5 shadow-lg shadow-black/20 ${METRIC_TONES[tone]}`}>
       <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">{label}</p>
       <p className="text-3xl font-bold">{value}</p>
     </div>
@@ -282,7 +286,7 @@ function RegistroTab({ callApi, onNotice }) {
 
       {empleado && (
         <form onSubmit={registrar} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
-          <h3 className="text-2xl font-light">Registrar horas</h3>
+          <h3 className={`${ui.sectionTitle} mb-6`}>Registrar horas</h3>
           <div className="grid gap-5 md:grid-cols-3">
             <div>
               <label htmlFor="txt-fecha" className={labelClass}>Fecha</label>
@@ -345,7 +349,7 @@ function RegistroTab({ callApi, onNotice }) {
             El total autorizado incluye el saldo de registros anteriores al nuevo sistema ({formatMinutes(totales.historico.horas_min)} generadas menos {formatMinutes(totales.historico.usadas_min)} usadas = {formatMinutes(totales.historico.saldo_min)}).
           </p>
           <div>
-            <h3 className="text-2xl font-light mb-4">Acumulado semanal</h3>
+            <h3 className={`${ui.sectionTitle} mb-4`}>Acumulado semanal</h3>
             <SemanasTable semanas={totales.semanas} />
           </div>
         </div>
@@ -428,7 +432,7 @@ function AutorizacionTab({ callApi, onNotice }) {
   return (
     <div className="space-y-10">
       <section>
-        <h3 className="text-2xl font-light mb-4">
+        <h3 className={`${ui.sectionTitle} mb-4`}>
           Solicitudes pendientes <span className="text-slate-400 text-lg">({pendientes.length})</span>
         </h3>
         {pendientes.length === 0 ? (
@@ -468,7 +472,7 @@ function AutorizacionTab({ callApi, onNotice }) {
       </section>
 
       <section className="space-y-4">
-        <h3 className="text-2xl font-light">Historial de solicitudes</h3>
+        <h3 className={`${ui.sectionTitle} mb-6`}>Historial de solicitudes</h3>
         <form onSubmit={aplicarFiltros} className="grid gap-4 md:grid-cols-5 items-end bg-slate-900 border border-slate-800 rounded-xl p-4">
           <div>
             <label htmlFor="flt-empleado" className="block text-sm mb-2 text-slate-400">Empleado</label>
@@ -566,6 +570,10 @@ function ConfiguracionTab({ callApi, onNotice }) {
         callApi("get", "/txt/config/historial"),
       ]);
       const cfg = cfgData.config;
+      const camposNuevos = ["ventana_manana_inicio_min", "ventana_manana_fin_min", "ventana_tarde_inicio_min", "ventana_tarde_fin_min", "aviso_duracion_seg"];
+      if (camposNuevos.some((c) => cfg[c] === undefined || cfg[c] === null)) {
+        onNotice({ type: "error", text: "El servidor no devuelve las ventanas de registro ni el tiempo de aviso. Reinicia el backend (node index.js) y recarga la página." });
+      }
       setConfig(cfg);
       setForm({
         dias_minimos_entre_escaneos: String(cfg.dias_minimos_entre_escaneos),
@@ -636,7 +644,7 @@ function ConfiguracionTab({ callApi, onNotice }) {
       </section>
 
       <form onSubmit={guardar} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
-        <h3 className="text-2xl font-light">Configuración de escaneos</h3>
+        <h3 className={`${ui.sectionTitle} mb-6`}>Configuración de escaneos</h3>
         <div className="grid gap-5 md:grid-cols-2">
           <div>
             <label htmlFor="cfg-dias" className={labelClass}>Días mínimos entre escaneos</label>
@@ -741,7 +749,7 @@ function ConfiguracionTab({ callApi, onNotice }) {
       </form>
 
       <section className="space-y-4">
-        <h3 className="text-2xl font-light">Historial de cambios</h3>
+        <h3 className={`${ui.sectionTitle} mb-6`}>Historial de cambios</h3>
         {historial.length === 0 ? (
           <p className="text-slate-400 text-lg">Sin cambios registrados.</p>
         ) : (
@@ -879,6 +887,9 @@ export default function TxtComponent({ onClose }) {
               {loggingIn ? "Validando..." : "Entrar"}
             </button>
           </form>
+          <p className={`${ui.muted} text-sm mt-6`}>
+            La configuración de escaneos (horarios, aviso y días mínimos) se habilita al entrar con el No. 179.
+          </p>
         </div>
       </Shell>
     );
@@ -901,7 +912,7 @@ export default function TxtComponent({ onClose }) {
       actions={<button type="button" onClick={handleLogout} className={buttonClass}>Cerrar sesión</button>}
       onClose={handleClose}
     >
-      <nav className="flex flex-wrap gap-2 p-1.5 mb-8 bg-slate-950 border border-slate-800 rounded-2xl w-fit" aria-label="Pestañas">
+      <nav className="flex flex-wrap gap-2 p-1.5 mb-8 bg-slate-950/80 border border-white/5 rounded-2xl w-fit" aria-label="Pestañas">
         {tabs.map((t) => (
           <button
             key={t.id}
