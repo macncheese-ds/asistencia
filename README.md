@@ -180,6 +180,23 @@ CREATE TABLE assistance_logs (
 );
 ```
 
+### Migration for existing databases
+
+Run once on databases created before this release. It is idempotent and does not delete or modify existing data:
+
+```bash
+mysql -u root asistencia < migrations/001_solicitudes_horas_intervalo_guantes.sql
+```
+
+It creates `escaneo_configuracion` (seeded with 1 day between scans and 3 scans for glove warning), `escaneo_configuracion_historial`, `empleado_contador_guantes` and `solicitudes_horas`.
+
+## TXT Module (hours requests)
+
+- Login uses `credenciales.users` with `num_empleado` and `pass_hash` (bcrypt). No passwords are stored in code.
+- Roles `Ingeniero` and `Tool Room` can log in and capture hours requests. Requests start as `pendiente`.
+- Only the engineer with `num_empleado` `179` (role `Ingeniero`) can authorize or deny requests, see the "Autorización" tab, and change the scan interval in "Configuración". The backend enforces this on every endpoint.
+- Only authorized hours are added to the total. Pending and denied hours are shown separately.
+
 ## Development
 
 ### Running in Development Mode
@@ -262,6 +279,7 @@ mysql -u root credenciales -e "SELECT num_empleado, nombre FROM users LIMIT 5;"
 
 - Employee credentials are NOT required for attendance registration
 - The app only reads from `credenciales`, never modifies it
+- TXT module credentials are read from `credenciales.users`; no hardcoded passwords
 - All queries use parameterized statements (no SQL injection)
 - CORS is configured but ensure proper firewall rules in production
 

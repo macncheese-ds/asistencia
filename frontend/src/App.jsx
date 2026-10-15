@@ -13,6 +13,18 @@ function formatScanTime(date) {
   return Number.isNaN(parsed.getTime()) ? "--:--:--" : parsed.toLocaleTimeString();
 }
 
+const DEFAULT_SCAN_DISPLAY_MS = 5000;
+let nextScanId = 1;
+
+function EmployeeHeader({ name, num }) {
+  return (
+    <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 mb-6 text-center">
+      <p className="text-4xl md:text-5xl font-extrabold text-white break-words leading-tight">{name}</p>
+      <p className="text-2xl md:text-3xl font-bold text-sky-300 mt-3">No. {num}</p>
+    </div>
+  );
+}
+
 function App() {
   const [scannedData, setScannedData] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -22,10 +34,12 @@ function App() {
   const [loginError, setLoginError] = useState("");
   const [registrations, setRegistrations] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [scanModal, setScanModal] = useState(null);
+  const [scanQueue, setScanQueue] = useState([]);
+  const scanModal = scanQueue[0] || null;
   const [isScanning, setIsScanning] = useState(false);
   const [downloadTurn, setDownloadTurn] = useState("all");
   const [currentTurn, setCurrentTurn] = useState({ turn: 1, name: "TURNO MAÑANA", withinWindow: false });
+  const [scanDisplayMs, setScanDisplayMs] = useState(DEFAULT_SCAN_DISPLAY_MS);
   const inputRef = useRef(null);
   const scanModalRef = useRef(null);
   
@@ -42,6 +56,10 @@ function App() {
           name: response.data.turnName,
           withinWindow: response.data.withinWindow
         });
+        const avisoSeg = Number(response.data.aviso_duracion_seg);
+        if (Number.isFinite(avisoSeg) && avisoSeg > 0) {
+          setScanDisplayMs(avisoSeg * 1000);
+        }
       } catch (error) {
         console.error('Error fetching current turn:', error);
         // Keep previous value on error
@@ -65,14 +83,31 @@ function App() {
     }
   }, [showModal, showTxtModal]);
 
+  // The head of the queue stays on screen for scanDisplayMs (configured by the engineer) before the next result is shown
+  const headScanId = scanQueue[0]?.id;
   useEffect(() => {
-    if (scanModal) {
-      const timer = setTimeout(() => {
-        setScanModal(null);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [scanModal]);
+    if (headScanId === undefined) return;
+    const timer = setTimeout(() => {
+      setScanQueue((queue) => queue.slice(1));
+    }, scanDisplayMs);
+    return () => clearTimeout(timer);
+  }, [headScanId, scanDisplayMs]);
+
+  // A regular result is replaced by the newest one, but a glove warning is never replaced before it has been shown
+  const pushScanResult = (item) => {
+    setScanQueue((queue) => {
+      const [head, ...rest] = queue;
+      if (!head) return [item];
+      if (!head.aviso_guantes) {
+        return [item, ...rest.filter((queued) => queued.aviso_guantes)];
+      }
+      const last = rest[rest.length - 1];
+      if (last && !last.aviso_guantes) {
+        return [head, ...rest.slice(0, -1), item];
+      }
+      return [head, ...rest, item];
+    });
+  };
 
   const handleScan = async (e) => {
     e.preventDefault();
@@ -82,16 +117,25 @@ function App() {
     
     try {
       const response = await axios.post(SCAN_ENDPOINT, { num_empleado: scannedData });
-      setScanModal({
-        full_name: response.data.user.full_name,
-        area: response.data.user.area,
-        gaveta: response.data.user.gaveta,
-        posicion: response.data.user.posicion,
+      const { user, aviso_guantes } = response.data;
+      pushScanResult({
+        id: nextScanId++,
+        full_name: user.full_name,
+        num_empleado: user.num_empleado,
+        area: user.area,
+        gaveta: user.gaveta,
+        posicion: user.posicion,
+        aviso_guantes: Boolean(aviso_guantes),
         time: new Date().toLocaleTimeString()
       });
     } catch (err) {
-      setScanModal({
-        error: err.response?.data?.error || "Error al registrar",
+      const data = err.response?.data;
+      pushScanResult({
+        id: nextScanId++,
+        error: data?.error || "Error al registrar",
+        full_name: data?.user?.full_name,
+        num_empleado: data?.user?.num_empleado,
+        aviso_guantes: false,
         time: new Date().toLocaleTimeString()
       });
     } finally {
@@ -159,100 +203,107 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white p-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
       {showTxtModal && <TxtComponent onClose={() => setShowTxtModal(false)} />}
-      
+
       {scanModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 animate-fade-in">
-          <div className={`bg-gray-950 p-8 md:p-12 rounded-lg shadow-2xl border-2 text-center w-full max-w-xl mx-4 animate-zoom-in ${
-            scanModal.error ? 'border-red-800' : 'border-emerald-800'
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className={`bg-slate-900 p-6 md:p-10 rounded-3xl shadow-2xl border-2 text-center w-full max-w-2xl animate-zoom-in ${
+            scanModal.error ? 'border-rose-500/70' : 'border-emerald-500/70'
           }`}>
             {scanModal.error ? (
               <>
-                <div className="w-20 h-20 mx-auto mb-6 bg-red-950 border-2 border-red-800 rounded-full flex items-center justify-center">
-                  <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-20 h-20 mx-auto mb-6 bg-rose-500/15 border-2 border-rose-500/60 rounded-full flex items-center justify-center">
+                  <svg className="w-10 h-10 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path>
                   </svg>
                 </div>
-                <h2 className="text-3xl font-bold text-red-400 mb-4">Error</h2>
-                <p className="text-gray-300 text-xl">{scanModal.error}</p>
+                <h2 className="text-3xl font-bold text-rose-300 mb-4">Error</h2>
+                {scanModal.full_name && <EmployeeHeader name={scanModal.full_name} num={scanModal.num_empleado} />}
+                <p className="text-slate-200 text-2xl font-semibold">{scanModal.error}</p>
               </>
             ) : (
               <>
+                {scanModal.aviso_guantes && (
+                  <div role="alert" className="mb-6 bg-amber-400 text-slate-950 rounded-2xl p-6 border-4 border-amber-200 shadow-lg shadow-amber-900/40">
+                    <p className="text-3xl md:text-4xl font-black leading-tight">Debes pasar a Tool Room por guantes nuevos.</p>
+                  </div>
+                )}
                 <div className="mb-6">
-                  <div className="w-20 h-20 mx-auto mb-4 bg-emerald-950 border-2 border-emerald-800 rounded-full flex items-center justify-center animate-zoom-in" style={{animationDelay: '0.1s'}}>
-                    <svg className="w-10 h-10 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-20 h-20 mx-auto mb-4 bg-emerald-500/15 border-2 border-emerald-500/60 rounded-full flex items-center justify-center animate-zoom-in" style={{animationDelay: '0.1s'}}>
+                    <svg className="w-10 h-10 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path>
                     </svg>
                   </div>
-                  <h2 className="text-3xl font-bold text-emerald-400">REGISTRADO</h2>
+                  <h2 className="text-3xl font-bold text-emerald-300 tracking-wide">REGISTRADO</h2>
                 </div>
 
-                {/* Gaveta & Posición - BIG and prominent */}
-                <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
+                <EmployeeHeader name={scanModal.full_name} num={scanModal.num_empleado} />
+
+                {/* Gaveta y posición: datos principales para el operador */}
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 mb-6">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center">
-                      <p className="text-gray-500 text-sm uppercase tracking-widest mb-1">Gaveta</p>
+                    <div className="text-center bg-slate-900 rounded-xl py-4">
+                      <p className="text-slate-400 text-sm font-semibold uppercase tracking-widest mb-2">Gaveta</p>
                       <p className="text-6xl font-black text-white">{scanModal.gaveta}</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-gray-500 text-sm uppercase tracking-widest mb-1">Posición</p>
+                    <div className="text-center bg-slate-900 rounded-xl py-4">
+                      <p className="text-slate-400 text-sm font-semibold uppercase tracking-widest mb-2">Posición</p>
                       <p className="text-6xl font-black text-white">{scanModal.posicion}</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-3 text-left text-lg">
-                  <p className="text-gray-300"><span className="text-gray-500">Nombre:</span> <span className="font-semibold text-white">{scanModal.full_name}</span></p>
-                  <p className="text-gray-300"><span className="text-gray-500">Área:</span> <span className="font-semibold text-white">{scanModal.area || '-'}</span></p>
-                  <p className="text-gray-600 text-base mt-4">Hora: {scanModal.time}</p>
+                  <p className="text-slate-300"><span className="text-slate-400">Área:</span> <span className="font-semibold text-white">{scanModal.area || '-'}</span></p>
+                  <p className="text-slate-400 text-base mt-4">Hora: {scanModal.time}</p>
                 </div>
               </>
             )}
           </div>
         </div>
       )}
-      
+
       {!showModal ? (
         <div className="max-w-3xl mx-auto">
-          <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-6">
-            <h1 className="text-4xl font-light tracking-tight">Control Asistencia</h1>
+          <div className="flex flex-wrap justify-between items-center gap-4 mb-8 pb-6 border-b border-slate-800">
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Control Asistencia</h1>
             <div className="flex gap-3">
-              <button onClick={() => setShowTxtModal(true)} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">
+              <button onClick={() => setShowTxtModal(true)} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-lg font-medium transition">
                 Txt
               </button>
-              <button onClick={handleOpenModal} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">
+              <button onClick={handleOpenModal} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-lg font-medium transition">
                 Reportes
               </button>
             </div>
           </div>
-          <div className={`p-6 border-b mb-8 text-center ${currentTurn.withinWindow ? "border-emerald-800" : "border-gray-700"}`}>
-            <h2 className="text-2xl font-light text-gray-200">{currentTurn.name}</h2>
-            <p className={`mt-3 text-sm font-semibold tracking-widest ${currentTurn.withinWindow ? "text-emerald-500" : "text-gray-600"}`}>
+          <div className={`rounded-2xl border p-6 mb-8 text-center bg-slate-900/80 ${currentTurn.withinWindow ? "border-emerald-500/50" : "border-slate-700"}`}>
+            <h2 className="text-2xl font-semibold text-slate-100">{currentTurn.name}</h2>
+            <p className={`mt-3 text-sm font-bold tracking-widest ${currentTurn.withinWindow ? "text-emerald-300" : "text-slate-400"}`}>
               {currentTurn.withinWindow ? "● ACTIVO" : "○ INACTIVO"}
             </p>
           </div>
-          <div className="bg-gray-950 border border-gray-800 p-8 md:p-12 rounded-lg">
-            <h1 className="text-3xl font-light mb-8 text-center text-gray-100">Escanea Badge</h1>
+          <div className="bg-slate-900/80 border border-slate-800 shadow-xl shadow-black/40 p-8 md:p-12 rounded-2xl">
+            <h1 className="text-3xl font-semibold mb-8 text-center text-slate-100">Escanea Badge</h1>
             <form onSubmit={handleScan}>
-              <input 
-                ref={inputRef} 
-                type="text" 
-                className={`w-full bg-gray-900 border-2 rounded-md p-5 text-center text-2xl text-white focus:outline-none placeholder-gray-600 transition-all ${
-                  isScanning ? 'border-gray-600 animate-pulse' : 'border-gray-700 focus:border-gray-500'
+              <input
+                ref={inputRef}
+                type="text"
+                className={`w-full bg-slate-950 border-2 rounded-2xl p-5 text-center text-2xl text-white focus:outline-none focus:ring-4 focus:ring-sky-500/30 placeholder-slate-500 transition-all ${
+                  isScanning ? 'border-slate-600 animate-pulse' : 'border-slate-700 focus:border-sky-500'
                 }`}
-                placeholder={isScanning ? "Procesando..." : "Escanea aqui..."} 
-                value={scannedData} 
-                onChange={(e) => setScannedData(e.target.value)} 
+                placeholder={isScanning ? "Procesando..." : "Escanea aqui..."}
+                value={scannedData}
+                onChange={(e) => setScannedData(e.target.value)}
                 disabled={isScanning}
-                autoFocus 
+                autoFocus
               />
               {isScanning && (
                 <div className="mt-6 flex justify-center">
                   <div className="flex space-x-3">
-                    <div className="w-4 h-4 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0s'}}></div>
-                    <div className="w-4 h-4 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                    <div className="w-4 h-4 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
+                    <div className="w-4 h-4 bg-sky-400 rounded-full animate-bounce" style={{animationDelay: '0s'}}></div>
+                    <div className="w-4 h-4 bg-sky-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    <div className="w-4 h-4 bg-sky-400 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
                   </div>
                 </div>
               )}
@@ -261,49 +312,49 @@ function App() {
         </div>
       ) : (
         <div className="max-w-5xl mx-auto">
-          <div className="bg-gray-950 border border-gray-800 p-6 md:p-8 rounded-lg">
-            <div className="flex justify-between mb-8 border-b border-gray-800 pb-6">
-              <h2 className="text-3xl font-light">Reportes</h2>
-              <button onClick={handleCloseModal} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">Cerrar</button>
+          <div className="bg-slate-900/80 border border-slate-800 shadow-xl shadow-black/40 p-6 md:p-8 rounded-2xl">
+            <div className="flex flex-wrap justify-between items-center gap-4 mb-8 border-b border-slate-800 pb-6">
+              <h2 className="text-3xl font-semibold tracking-tight">Reportes</h2>
+              <button onClick={handleCloseModal} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-lg font-medium transition">Cerrar</button>
             </div>
             {!registrations ? (
-              <div className="bg-gray-900 border border-gray-800 p-8 rounded-lg">
-                <h3 className="text-2xl font-light mb-8">Credenciales</h3>
-                {loginError && <div className="mb-6 border-l-2 border-red-800 bg-gray-900 text-red-400 p-4 text-lg">{loginError}</div>}
-                <form onSubmit={handleLogin} className="space-y-6">
-                  <input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-md p-4 text-white placeholder-gray-600 focus:outline-none focus:border-gray-500 text-lg" placeholder="Usuario" />
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-md p-4 text-white placeholder-gray-600 focus:outline-none focus:border-gray-500 text-lg" placeholder="Contraseña" />
+              <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl">
+                <h3 className="text-2xl font-semibold mb-6">Credenciales</h3>
+                {loginError && <div role="alert" className="mb-6 border-l-4 border-rose-500/60 bg-rose-500/10 text-rose-200 p-4 text-lg rounded-xl">{loginError}</div>}
+                <form onSubmit={handleLogin} className="space-y-5">
+                  <input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-lg text-white placeholder-slate-500 transition focus:outline-none focus:ring-2 focus:ring-sky-500/60 focus:border-sky-500" placeholder="Usuario" />
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-lg text-white placeholder-slate-500 transition focus:outline-none focus:ring-2 focus:ring-sky-500/60 focus:border-sky-500" placeholder="Contraseña" />
                   <div>
-                    <label className="block text-lg font-medium mb-3 text-gray-300">Fecha</label>
-                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-md p-4 text-white focus:outline-none focus:border-gray-500 text-lg" />
+                    <label className="block text-base font-medium mb-2 text-slate-300">Fecha</label>
+                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-lg text-white transition focus:outline-none focus:ring-2 focus:ring-sky-500/60 focus:border-sky-500" />
                   </div>
-                  <button type="submit" className="w-full bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 rounded-md text-lg transition">ENTRAR</button>
+                  <button type="submit" className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold py-3 rounded-xl text-lg shadow-lg shadow-sky-900/40 transition">ENTRAR</button>
                 </form>
               </div>
             ) : (
               <div>
-                <div className="mb-8">
-                  <p className="text-lg font-light mb-4">Fecha: <span className="text-gray-300">{registrations.date}</span> | Área: <span className="text-gray-300">{registrations.userArea}</span></p>
-                  <button onClick={handleDownload} className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md text-lg font-medium transition">Descargar Excel</button>
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+                  <p className="text-lg text-slate-300">Fecha: <span className="font-semibold text-white">{registrations.date}</span> <span className="text-slate-500">|</span> Área: <span className="font-semibold text-white">{registrations.userArea}</span></p>
+                  <button onClick={handleDownload} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl text-lg font-semibold shadow-lg shadow-emerald-900/40 transition">Descargar Excel</button>
                 </div>
                 <div className="mb-8">
-                  <h4 className="font-light text-2xl mb-3 text-gray-200">Turno Mañana</h4>
-                  <p className="text-sm text-gray-500 mb-3">{registrations.turn_1.time}</p>
-                  <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-auto">
+                  <h4 className="font-semibold text-2xl mb-2 text-slate-100">Turno Mañana</h4>
+                  <p className="text-sm text-slate-400 mb-3">{registrations.turn_1.time}</p>
+                  <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-auto">
                     <table className="w-full text-base">
-                      <thead className="border-b border-gray-800 bg-gray-900">
+                      <thead className="border-b border-slate-800 bg-slate-900">
                         <tr>
-                          <th className="p-3 text-left font-semibold text-gray-400">Num Empleado</th>
-                          <th className="p-3 text-left font-semibold text-gray-400">Nombre</th>
-                          <th className="p-3 text-center font-semibold text-gray-400">Gaveta</th>
-                          <th className="p-3 text-center font-semibold text-gray-400">Posición</th>
+                          <th className="p-3 text-left text-sm font-semibold uppercase tracking-wider text-slate-400">Num Empleado</th>
+                          <th className="p-3 text-left text-sm font-semibold uppercase tracking-wider text-slate-400">Nombre</th>
+                          <th className="p-3 text-center text-sm font-semibold uppercase tracking-wider text-slate-400">Gaveta</th>
+                          <th className="p-3 text-center text-sm font-semibold uppercase tracking-wider text-slate-400">Posición</th>
                         </tr>
                       </thead>
                       <tbody>
                         {registrations.turn_1.data.map((l, i) => (
-                          <tr key={i} className="border-b border-gray-800">
-                            <td className="p-3 text-gray-400">{l.num_empleado}</td>
-                            <td className="p-3 text-gray-300">{l.full_name}</td>
+                          <tr key={i} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/40">
+                            <td className="p-3 text-slate-400">{l.num_empleado}</td>
+                            <td className="p-3 text-slate-200">{l.full_name}</td>
                             <td className="p-3 text-center text-white font-bold text-lg">{l.gaveta || '-'}</td>
                             <td className="p-3 text-center text-white font-bold text-lg">{l.posicion || '-'}</td>
                           </tr>
@@ -311,26 +362,26 @@ function App() {
                       </tbody>
                     </table>
                   </div>
-                  <p className="mt-3 text-sm text-gray-500">Total: {registrations.turn_1.registrations}</p>
+                  <p className="mt-3 text-sm text-slate-400">Total: <span className="font-semibold text-slate-200">{registrations.turn_1.registrations}</span></p>
                 </div>
                 <div className="mb-8">
-                  <h4 className="font-light text-2xl mb-3 text-gray-200">Turno Tarde</h4>
-                  <p className="text-sm text-gray-500 mb-3">{registrations.turn_2.time}</p>
-                  <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-auto">
+                  <h4 className="font-semibold text-2xl mb-2 text-slate-100">Turno Tarde</h4>
+                  <p className="text-sm text-slate-400 mb-3">{registrations.turn_2.time}</p>
+                  <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-auto">
                     <table className="w-full text-base">
-                      <thead className="border-b border-gray-800 bg-gray-900">
+                      <thead className="border-b border-slate-800 bg-slate-900">
                         <tr>
-                          <th className="p-3 text-left font-semibold text-gray-400">Num Empleado</th>
-                          <th className="p-3 text-left font-semibold text-gray-400">Nombre</th>
-                          <th className="p-3 text-center font-semibold text-gray-400">Gaveta</th>
-                          <th className="p-3 text-center font-semibold text-gray-400">Posición</th>
+                          <th className="p-3 text-left text-sm font-semibold uppercase tracking-wider text-slate-400">Num Empleado</th>
+                          <th className="p-3 text-left text-sm font-semibold uppercase tracking-wider text-slate-400">Nombre</th>
+                          <th className="p-3 text-center text-sm font-semibold uppercase tracking-wider text-slate-400">Gaveta</th>
+                          <th className="p-3 text-center text-sm font-semibold uppercase tracking-wider text-slate-400">Posición</th>
                         </tr>
                       </thead>
                       <tbody>
                         {registrations.turn_2.data.map((l, i) => (
-                          <tr key={i} className="border-b border-gray-800">
-                            <td className="p-3 text-gray-400">{l.num_empleado}</td>
-                            <td className="p-3 text-gray-300">{l.full_name}</td>
+                          <tr key={i} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/40">
+                            <td className="p-3 text-slate-400">{l.num_empleado}</td>
+                            <td className="p-3 text-slate-200">{l.full_name}</td>
                             <td className="p-3 text-center text-white font-bold text-lg">{l.gaveta || '-'}</td>
                             <td className="p-3 text-center text-white font-bold text-lg">{l.posicion || '-'}</td>
                           </tr>
@@ -338,9 +389,9 @@ function App() {
                       </tbody>
                     </table>
                   </div>
-                  <p className="mt-3 text-sm text-gray-500">Total: {registrations.turn_2.registrations}</p>
+                  <p className="mt-3 text-sm text-slate-400">Total: <span className="font-semibold text-slate-200">{registrations.turn_2.registrations}</span></p>
                 </div>
-                <div className="text-center bg-gray-900 p-6 rounded-lg border border-gray-800 font-light text-lg">Total Día: <span className="text-gray-300 font-semibold">{registrations.total}</span></div>
+                <div className="text-center bg-slate-900 p-6 rounded-xl border border-slate-800 text-lg">Total Día: <span className="text-sky-300 font-bold text-2xl">{registrations.total}</span></div>
               </div>
             )}
           </div>
