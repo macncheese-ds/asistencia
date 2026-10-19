@@ -180,6 +180,174 @@ function SemanasTable({ semanas }) {
 }
 
 
+// Tool Room: registers hours already used by an employee. Reduces the available balance directly (no request).
+function UsoHorasTab({ callApi, onNotice }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [empleado, setEmpleado] = useState(null);
+  const [totales, setTotales] = useState(null);
+  const [buscando, setBuscando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [form, setForm] = useState({ fecha: todayIso(), horas: "", minutos: "" });
+  const pendingRef = useRef(null);
+  const inFlightRef = useRef(false);
+
+  const cargarTotales = async (num) => {
+    try {
+      setTotales(await callApi("get", `/txt/totales/${encodeURIComponent(num)}`));
+    } catch (err) {
+      onNotice({ type: "error", text: errorText(err, "No se pudieron cargar los totales") });
+    }
+  };
+
+  const buscarEmpleado = async (e) => {
+    e.preventDefault();
+    const num = busqueda.trim();
+    if (!num || buscando) return;
+    setBuscando(true);
+    onNotice(null);
+    try {
+      const data = await callApi("get", `/txt/empleados/${encodeURIComponent(num)}`);
+      setEmpleado(data.empleado);
+      setTotales(null);
+      pendingRef.current = null;
+      await cargarTotales(data.empleado.num_empleado);
+    } catch (err) {
+      setEmpleado(null);
+      setTotales(null);
+      onNotice({ type: "error", text: errorText(err, "Error al buscar el empleado") });
+    } finally {
+      setBuscando(false);
+    }
+  };
+
+  const registrar = async (e) => {
+    e.preventDefault();
+    if (!empleado || inFlightRef.current) return;
+
+    // Same retry protection as solicitudes: a repeated click or retry reuses the id and never consumes hours twice
+    const key = [empleado.num_empleado, form.fecha, form.horas, form.minutos].join("|");
+    if (!pendingRef.current || pendingRef.current.key !== key) {
+      pendingRef.current = { key, token: newRequestToken() };
+    }
+
+    inFlightRef.current = true;
+    setEnviando(true);
+    try {
+      const data = await callApi("post", "/txt/horas-utilizadas", {
+        data: {
+          num_empleado: empleado.num_empleado,
+          fecha: form.fecha,
+          horas: form.horas === "" ? "0" : form.horas,
+          minutos: form.minutos === "" ? "0" : form.minutos,
+          request_token: pendingRef.current.token,
+        },
+      });
+      pendingRef.current = null;
+      setForm({ fecha: form.fecha, horas: "", minutos: "" });
+      onNotice({
+        type: "success",
+        text: data.duplicate
+          ? "Este registro ya estaba guardado. No se volvió a descontar."
+          : "Horas utilizadas registradas. El disponible se redujo.",
+      });
+      await cargarTotales(empleado.num_empleado);
+    } catch (err) {
+      onNotice({ type: "error", text: errorText(err, "No se pudieron registrar las horas utilizadas") });
+    } finally {
+      inFlightRef.current = false;
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <form onSubmit={buscarEmpleado} className="flex flex-col sm:flex-row gap-3">
+        <label htmlFor="uso-empleado" className="sr-only">Número de empleado</label>
+        <input
+          id="uso-empleado"
+          className={`${inputClass} sm:flex-1`}
+          placeholder="Número de empleado"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          autoComplete="off"
+        />
+        <button type="submit" disabled={buscando} className={buttonClass}>
+          {buscando ? "Buscando..." : "Buscar empleado"}
+        </button>
+      </form>
+
+      {empleado && (
+        <div className="bg-slate-900 border-2 border-emerald-800 rounded-xl p-6 text-center">
+          <p className="text-slate-400 uppercase tracking-widest text-sm mb-2">Empleado</p>
+          <p className="text-4xl md:text-5xl font-black text-white break-words">{empleado.nombre}</p>
+          <p className="text-2xl md:text-3xl font-bold text-emerald-300 mt-2">No. {empleado.num_empleado}</p>
+          {empleado.area && <p className="text-slate-400 mt-2">{empleado.area}</p>}
+        </div>
+      )}
+
+      {empleado && totales && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Metric label="Disponible" value={formatMinutes(totales.total_autorizado_min)} tone="emerald" />
+          <Metric label="Utilizado (Tool Room)" value={formatMinutes(totales.utilizado_min)} tone="amber" />
+        </div>
+      )}
+
+      {empleado && (
+        <form onSubmit={registrar} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
+          <h3 className={`${ui.sectionTitle} mb-6`}>Registrar horas utilizadas</h3>
+          <div className="grid gap-5 md:grid-cols-3">
+            <div>
+              <label htmlFor="uso-fecha" className={labelClass}>Fecha de uso</label>
+              <input
+                id="uso-fecha"
+                type="date"
+                className={inputClass}
+                value={form.fecha}
+                onChange={(e) => setForm({ ...form, fecha: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="uso-horas" className={labelClass}>Horas (0 a 24)</label>
+              <input
+                id="uso-horas"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="24"
+                step="1"
+                className={inputClass}
+                value={form.horas}
+                onChange={(e) => setForm({ ...form, horas: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="uso-minutos" className={labelClass}>Minutos (0 a 59)</label>
+              <input
+                id="uso-minutos"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="59"
+                step="1"
+                className={inputClass}
+                value={form.minutos}
+                onChange={(e) => setForm({ ...form, minutos: e.target.value })}
+              />
+            </div>
+          </div>
+          <p className="text-sm text-slate-400">
+            Puedes usar una fecha pasada, de hoy o programada. Las horas se descuentan del disponible al registrarlas y no requieren autorización.
+          </p>
+          <button type="submit" disabled={enviando} className={`${primaryButtonClass} w-full md:w-auto`}>
+            {enviando ? "Guardando..." : "Registrar horas utilizadas"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function RegistroTab({ callApi, onNotice }) {
   const [busqueda, setBusqueda] = useState("");
   const [empleado, setEmpleado] = useState(null);
@@ -341,12 +509,12 @@ function RegistroTab({ callApi, onNotice }) {
       {empleado && totales && (
         <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-3">
-            <Metric label="Total autorizado" value={formatMinutes(totales.total_autorizado_min)} tone="emerald" />
+            <Metric label="Disponible" value={formatMinutes(totales.total_autorizado_min)} tone="emerald" />
             <Metric label="Pendiente" value={formatMinutes(totales.pendiente_min)} tone="amber" />
             <Metric label="Denegado" value={formatMinutes(totales.denegada_min)} tone="red" />
           </div>
           <p className="text-sm text-slate-400">
-            El total autorizado incluye el saldo de registros anteriores al nuevo sistema ({formatMinutes(totales.historico.horas_min)} generadas menos {formatMinutes(totales.historico.usadas_min)} usadas = {formatMinutes(totales.historico.saldo_min)}).
+            El disponible incluye el saldo de registros anteriores al nuevo sistema ({formatMinutes(totales.historico.horas_min)} generadas menos {formatMinutes(totales.historico.usadas_min)} usadas = {formatMinutes(totales.historico.saldo_min)}), más las horas autorizadas y menos las horas utilizadas registradas por Tool Room ({formatMinutes(totales.utilizado_min)}).
           </p>
           <div>
             <h3 className={`${ui.sectionTitle} mb-4`}>Acumulado semanal</h3>
@@ -896,6 +1064,9 @@ export default function TxtComponent({ onClose }) {
   }
 
   const tabs = [{ id: "registro", label: "Registro" }];
+  if (session.user.rol === "Tool Room") {
+    tabs.push({ id: "uso_horas", label: "Horas utilizadas" });
+  }
   if (session.can_authorize) {
     tabs.push({ id: "autorizacion", label: "Autorización" }, { id: "configuracion", label: "Configuración" });
   }
@@ -933,6 +1104,7 @@ export default function TxtComponent({ onClose }) {
       <Notice notice={notice} />
 
       {tab === "registro" && <RegistroTab callApi={callApi} onNotice={setNotice} />}
+      {tab === "uso_horas" && session.user.rol === "Tool Room" && <UsoHorasTab callApi={callApi} onNotice={setNotice} />}
       {tab === "autorizacion" && session.can_authorize && <AutorizacionTab callApi={callApi} onNotice={setNotice} />}
       {tab === "configuracion" && session.can_authorize && <ConfiguracionTab callApi={callApi} onNotice={setNotice} />}
     </Shell>

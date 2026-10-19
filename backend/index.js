@@ -207,9 +207,9 @@ async function initDB() {
           UNIQUE KEY uq_solicitudes_request_token (request_token),
           INDEX idx_solicitudes_empleado_fecha (empleado_num, fecha),
           INDEX idx_solicitudes_estado_fecha (estado, fecha),
-          CONSTRAINT chk_solicitud_minutos CHECK (minutos BETWEEN 1 AND 1440)
-        )`
-      ];
+          CONSTRAINT chk_solicitud_minutos CHECK (minutos BETWEEN 1 AND 1440)
+        )`
+      ];
       for (const statement of newSchemaStatements) {
         await asistConn.query(statement);
       }
@@ -807,7 +807,7 @@ function getBearerToken(req) {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
-function requireTxtAuth({ authorizerOnly = false } = {}) {
+function requireTxtAuth({ authorizerOnly = false, toolRoomOnly = false } = {}) {
   return (req, res, next) => {
     const token = getBearerToken(req);
     const session = token ? txtSessions.get(token) : null;
@@ -817,7 +817,9 @@ function requireTxtAuth({ authorizerOnly = false } = {}) {
     }
     const allowed = authorizerOnly
       ? isAuthorizerUser(session.user)
-      : TXT_ALLOWED_ROLES.includes(session.user.rol);
+      : toolRoomOnly
+        ? session.user.rol === 'Tool Room'
+        : TXT_ALLOWED_ROLES.includes(session.user.rol);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para realizar esta acción.' });
     }
@@ -1117,61 +1119,151 @@ app.post('/api/txt/solicitudes/:id/resolver', requireTxtAuth({ authorizerOnly: t
   }
 });
 
-// Totals per employee. Authorized total = legacy txt hours + authorized requests. Pending and denied are never added.
-app.get('/api/txt/totales/:num', requireTxtAuth(), async (req, res) => {
-  const empleadoNum = normalizeTxtEmployeeNumber(req.params.num);
-  try {
+// Balance per employee. Authorized total = legacy txt hours + authorized requests - hours used (Tool Room). Pending and denied are never added.
+async function calcularTotalesEmpleado(dbNum) {
+  // Legacy txt.empleado may be stored as 179, 0179, 179A, 000179A... Compare using the same core as the employee lookup.
+  const txtEmpleadoCoreSql = `TRIM(LEADING '0' FROM IF(RIGHT(UPPER(TRIM(empleado)), 1) = 'A',
+      LEFT(UPPER(TRIM(empleado)), CHAR_LENGTH(TRIM(empleado)) - 1),
+      UPPER(TRIM(empleado))))`;
+  const [historico] = await asistenciaPool.query(
+    `SELECT COALESCE(SUM(hours), 0) AS horas, COALESCE(SUM(usadas), 0) AS usadas FROM txt WHERE ${txtEmpleadoCoreSql} = ?`,
+    [txtEmployeeCore(dbNum)]
+  );
+  const [semanas] = await asistenciaPool.query(
+    `SELECT DATE_FORMAT(DATE_SUB(fecha, INTERVAL WEEKDAY(fecha) DAY), '%Y-%m-%d') AS semana_inicio,
+       COALESCE(SUM(CASE WHEN estado = 'pendiente' THEN minutos ELSE 0 END), 0) AS pendiente_min,
+       COALESCE(SUM(CASE WHEN estado = 'autorizada' THEN minutos ELSE 0 END), 0) AS autorizada_min,
+       COALESCE(SUM(CASE WHEN estado = 'denegada' THEN minutos ELSE 0 END), 0) AS denegada_min
+     FROM solicitudes_horas
+     WHERE empleado_num = ?
+     GROUP BY semana_inicio
+     ORDER BY semana_inicio DESC`,
+    [dbNum]
+  );
+  const [utilizadas] = await asistenciaPool.query(
+    'SELECT COALESCE(SUM(minutos), 0) AS utilizado_min FROM horas_utilizadas WHERE empleado_num = ?',
+    [dbNum]
+  );
+
+  const semanasNorm = semanas.map((s) => ({
+    semana_inicio: s.semana_inicio,
+    pendiente_min: Number(s.pendiente_min),
+    autorizada_min: Number(s.autorizada_min),
+    denegada_min: Number(s.denegada_min)
+  }));
+  const suma = (campo) => semanasNorm.reduce((acc, s) => acc + s[campo], 0);
+  const horasHistoricas = Number(historico[0].horas);
+  const usadasHistoricas = Number(historico[0].usadas);
+  const saldoHistorico = horasHistoricas - usadasHistoricas;
+  const utilizadoMin = Number(utilizadas[0].utilizado_min);
+
+  return {
+    historico: { horas_min: horasHistoricas, usadas_min: usadasHistoricas, saldo_min: saldoHistorico },
+    utilizado_min: utilizadoMin,
+    total_autorizado_min: saldoHistorico + suma('autorizada_min') - utilizadoMin,
+    pendiente_min: suma('pendiente_min'),
+    denegada_min: suma('denegada_min'),
+    semanas: semanasNorm
+  };
+}
+
+app.get('/api/txt/totales/:num', requireTxtAuth(), async (req, res) => {
+  const empleadoNum = normalizeTxtEmployeeNumber(req.params.num);
+  try {
     const found = await findTxtUser(empleadoNum, 'num_empleado, nombre, area');
     const empleados = found ? [found] : [];
     if (empleados.length === 0) {
       return res.status(404).json({ error: 'Empleado no encontrado', searched: empleadoNum });
     }
-    const dbNum = empleados[0].num_empleado;
-
-    // Legacy txt.empleado may be stored as 179, 0179, 179A, 000179A... Compare using the same core as the employee lookup.
-    const txtEmpleadoCoreSql = `TRIM(LEADING '0' FROM IF(RIGHT(UPPER(TRIM(empleado)), 1) = 'A',
-        LEFT(UPPER(TRIM(empleado)), CHAR_LENGTH(TRIM(empleado)) - 1),
-        UPPER(TRIM(empleado))))`;
-    const [historico] = await asistenciaPool.query(
-      `SELECT COALESCE(SUM(hours), 0) AS horas, COALESCE(SUM(usadas), 0) AS usadas FROM txt WHERE ${txtEmpleadoCoreSql} = ?`,
-      [txtEmployeeCore(dbNum)]
-    );
-    const [semanas] = await asistenciaPool.query(
-      `SELECT DATE_FORMAT(DATE_SUB(fecha, INTERVAL WEEKDAY(fecha) DAY), '%Y-%m-%d') AS semana_inicio,
-         COALESCE(SUM(CASE WHEN estado = 'pendiente' THEN minutos ELSE 0 END), 0) AS pendiente_min,
-         COALESCE(SUM(CASE WHEN estado = 'autorizada' THEN minutos ELSE 0 END), 0) AS autorizada_min,
-         COALESCE(SUM(CASE WHEN estado = 'denegada' THEN minutos ELSE 0 END), 0) AS denegada_min
-       FROM solicitudes_horas
-       WHERE empleado_num = ?
-       GROUP BY semana_inicio
-       ORDER BY semana_inicio DESC`,
-      [dbNum]
-    );
-
-    const semanasNorm = semanas.map((s) => ({
-      semana_inicio: s.semana_inicio,
-      pendiente_min: Number(s.pendiente_min),
-      autorizada_min: Number(s.autorizada_min),
-      denegada_min: Number(s.denegada_min)
-    }));
-    const suma = (campo) => semanasNorm.reduce((acc, s) => acc + s[campo], 0);
-    const horasHistoricas = Number(historico[0].horas);
-    const usadasHistoricas = Number(historico[0].usadas);
-    const saldoHistorico = horasHistoricas - usadasHistoricas;
-
+    const totales = await calcularTotalesEmpleado(empleados[0].num_empleado);
     res.json({
       empleado: { num_empleado: empleados[0].num_empleado, nombre: empleados[0].nombre, area: empleados[0].area },
-      historico: { horas_min: horasHistoricas, usadas_min: usadasHistoricas, saldo_min: saldoHistorico },
-      total_autorizado_min: saldoHistorico + suma('autorizada_min'),
-      pendiente_min: suma('pendiente_min'),
-      denegada_min: suma('denegada_min'),
-      semanas: semanasNorm
-    });
-  } catch (error) {
-    console.error('Error computing totals:', error);
-    res.status(500).json({ error: 'Error al calcular totales' });
-  }
-});
+      ...totales
+    });
+  } catch (error) {
+    console.error('Error computing totals:', error);
+    res.status(500).json({ error: 'Error al calcular totales' });
+  }
+});
+
+// Tool Room only: records hours already used by an employee. No request or authorization step; the available balance drops immediately.
+app.post('/api/txt/horas-utilizadas', requireTxtAuth({ toolRoomOnly: true }), async (req, res) => {
+  const { num_empleado, fecha, horas, minutos, request_token } = req.body || {};
+  const token = String(request_token ?? '').trim();
+  const empleadoNum = normalizeTxtEmployeeNumber(num_empleado);
+  const h = parseIntField(horas, 0, 24);
+  const m = parseIntField(minutos, 0, 59);
+  const minutosTotales = h === null || m === null ? null : h * 60 + m;
+
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(token)) {
+    return res.status(400).json({ error: 'Identificador de registro no válido.' });
+  }
+  if (!empleadoNum) {
+    return res.status(400).json({ error: 'Número de empleado requerido.' });
+  }
+  if (!isValidDateOnly(fecha)) {
+    return res.status(400).json({ error: 'Fecha no válida. Usa el formato AAAA-MM-DD.' });
+  }
+  if (minutosTotales === null || minutosTotales < 1 || minutosTotales > 1440) {
+    return res.status(400).json({ error: 'La cantidad debe ser mayor a 0 y no exceder 24 horas.' });
+  }
+
+  let conn = null;
+  let lockName = null;
+  try {
+    const found = await findTxtUser(empleadoNum, 'num_empleado, nombre');
+    if (!found) {
+      return res.status(404).json({ error: 'Empleado no encontrado', searched: empleadoNum });
+    }
+    const dbNum = found.num_empleado;
+
+    // A named lock per employee keeps two Tool Room users from spending the same balance at once
+    conn = await asistenciaPool.getConnection();
+    lockName = `txt_horas_${dbNum}`;
+    const [[lock]] = await conn.query('SELECT GET_LOCK(?, 10) AS ok', [lockName]);
+    if (Number(lock.ok) !== 1) {
+      lockName = null;
+      return res.status(409).json({ error: 'Este empleado está siendo actualizado. Intenta de nuevo.' });
+    }
+
+    const [existing] = await asistenciaPool.query(
+      'SELECT empleado_num, registrado_por_id FROM horas_utilizadas WHERE request_token = ? LIMIT 1',
+      [token]
+    );
+    if (existing.length) {
+      if (existing[0].empleado_num !== dbNum || existing[0].registrado_por_id !== req.txtUser.id) {
+        return res.status(409).json({ error: 'Identificador de registro ya utilizado.' });
+      }
+      const totales = await calcularTotalesEmpleado(dbNum);
+      return res.status(200).json({ message: 'Este registro ya estaba guardado. No se duplicó.', duplicate: true, totales });
+    }
+
+    const totales = await calcularTotalesEmpleado(dbNum);
+    if (minutosTotales > totales.total_autorizado_min) {
+      return res.status(409).json({
+        error: 'No hay horas disponibles suficientes para registrar esa cantidad.',
+        disponible_min: totales.total_autorizado_min
+      });
+    }
+
+    await asistenciaPool.query(
+      `INSERT INTO horas_utilizadas (empleado_num, fecha, minutos, request_token, registrado_por_id, registrado_por_num)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [dbNum, fecha, minutosTotales, token, req.txtUser.id, req.txtUser.num_empleado]
+    );
+    const actualizados = await calcularTotalesEmpleado(dbNum);
+    res.status(201).json({ message: 'Horas utilizadas registradas. El disponible se redujo.', duplicate: false, totales: actualizados });
+  } catch (error) {
+    console.error('Error registering used hours:', error);
+    res.status(500).json({ error: 'Error al registrar las horas utilizadas' });
+  } finally {
+    if (conn) {
+      if (lockName) await conn.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {});
+      conn.release();
+    }
+  }
+});
+
 
 // Scan interval and glove threshold configuration (engineer 179 only)
 app.get('/api/txt/config', requireTxtAuth({ authorizerOnly: true }), async (req, res) => {
