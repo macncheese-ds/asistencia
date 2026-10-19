@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import TxtComponent from "./TxtComponent";
+import GuantesComponent from "./GuantesComponent";
 import { APP_VERSION } from "./version";
 import { fechaHoySaltillo, horaSaltillo } from "./zonaHoraria";
 
@@ -31,6 +32,7 @@ function App() {
   const [scannedData, setScannedData] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showTxtModal, setShowTxtModal] = useState(false);
+  const [showGuantesModal, setShowGuantesModal] = useState(false);
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -213,6 +215,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 antialiased p-4 md:p-6">
       {showTxtModal && <TxtComponent onClose={() => setShowTxtModal(false)} />}
+      {showGuantesModal && <GuantesComponent onClose={() => setShowGuantesModal(false)} />}
 
       {scanModal && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -289,6 +292,9 @@ function App() {
             <div className="flex gap-3">
               <button onClick={() => setShowTxtModal(true)} className="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-white px-5 py-2.5 rounded-xl text-base font-semibold transition duration-200 active:scale-[0.98]">
                 Txt
+              </button>
+              <button onClick={() => setShowGuantesModal(true)} className="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-white px-5 py-2.5 rounded-xl text-base font-semibold transition duration-200 active:scale-[0.98]">
+                Guantes
               </button>
               <button onClick={handleOpenModal} className="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-white px-5 py-2.5 rounded-xl text-base font-semibold transition duration-200 active:scale-[0.98]">
                 Reportes

@@ -592,7 +592,6 @@ function AutorizacionTab({ callApi, onNotice }) {
 const TIPO_HISTORIAL_LABELS = {
   agregada: { label: "Horas agregadas", style: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" },
   utilizada: { label: "Horas utilizadas", style: "bg-amber-500/15 text-amber-300 border-amber-500/40" },
-  guante: { label: "Aviso de guantes", style: "bg-rose-500/15 text-rose-300 border-rose-500/40" },
   legacy: { label: "Anterior al sistema", style: "bg-sky-500/15 text-sky-300 border-sky-500/40" }
 };
 
@@ -652,7 +651,7 @@ function HistorialTab({ empleado, callApi, onNotice }) {
         </div>
       );
     }
-    return <span className="text-amber-200">Cambiar guantes · {r.escaneos_umbral} escaneos</span>;
+    return <span className="text-slate-500">-</span>;
   };
 
   return (
@@ -667,7 +666,6 @@ function HistorialTab({ empleado, callApi, onNotice }) {
             <option value="">Todos</option>
             <option value="agregada">Horas agregadas</option>
             <option value="utilizada">Horas utilizadas</option>
-            <option value="guante">Avisos de guantes</option>
             <option value="legacy">Anterior al sistema</option>
           </select>
         </div>

@@ -1278,8 +1278,8 @@ app.post('/api/txt/horas-utilizadas', requireTxtAuth({ toolRoomOnly: true }), as
 });
 
 
-// Historial por empleado: horas agregadas (solicitudes), horas utilizadas, avisos de guantes y registros legacy de txt.
-const HISTORIAL_TIPOS = ['agregada', 'utilizada', 'guante', 'legacy'];
+// Historial por empleado de TXT: horas agregadas (solicitudes), horas utilizadas y registros legacy de txt.
+const HISTORIAL_TIPOS = ['agregada', 'utilizada', 'legacy'];
 const HISTORIAL_LIMITE = 500;
 
 app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), async (req, res) => {
@@ -1319,16 +1319,6 @@ app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), as
       );
       registros.push(...rows);
     }
-    if (incluir('guante')) {
-      const [rows] = await asistenciaPool.query(
-        `SELECT 'guante' AS tipo, id, empleado_num, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, NULL AS minutos, NULL AS estado,
-           NULL AS registrado_por_num, avisado_at AS registrado_at, escaneos_umbral
-         FROM avisos_guantes WHERE 1=1${filtroEmpleado('empleado_num')}
-         ORDER BY avisado_at DESC LIMIT ${HISTORIAL_LIMITE}`,
-        params
-      );
-      registros.push(...rows);
-    }
     if (incluir('legacy')) {
       // txt has no event date, so these rows carry no fecha/registrado_at and sort last.
       const [rows] = await asistenciaPool.query(
@@ -1362,6 +1352,56 @@ app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), as
   } catch (error) {
     console.error('Error reading hours history:', error);
     res.status(500).json({ error: 'Error al consultar el historial' });
+  }
+});
+
+// Registro de avisos de cambio de guantes de todos los empleados. Sin contraseña.
+async function consultarAvisosGuantes() {
+  const [avisos] = await asistenciaPool.query(
+    `SELECT id, empleado_num, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, escaneos_umbral, avisado_at,
+            DATE_FORMAT(avisado_at, '%Y-%m-%d %H:%i:%s') AS avisado_texto
+     FROM avisos_guantes ORDER BY avisado_at DESC`
+  );
+
+  const nums = [...new Set(avisos.map((r) => r.empleado_num))];
+  const nombres = new Map();
+  if (nums.length) {
+    const [users] = await credencialesPool.query(
+      `SELECT num_empleado, nombre FROM users WHERE num_empleado IN (${nums.map(() => '?').join(',')})`,
+      nums
+    );
+    users.forEach((u) => nombres.set(u.num_empleado, u.nombre));
+  }
+
+  return avisos.map((r) => ({ ...r, empleado_nombre: nombres.get(r.empleado_num) || '' }));
+}
+
+app.get('/api/guantes/avisos', async (req, res) => {
+  try {
+    res.json({ avisos: await consultarAvisosGuantes() });
+  } catch (error) {
+    console.error('Error reading glove warnings:', error);
+    res.status(500).json({ error: 'Error al consultar los avisos de guantes' });
+  }
+});
+
+app.get('/api/guantes/avisos/excel', async (req, res) => {
+  try {
+    const avisos = await consultarAvisosGuantes();
+    const filas = [
+      ['Fecha y hora del aviso', 'Número de empleado', 'Nombre', 'Escaneos al avisar'],
+      ...avisos.map((a) => [a.avisado_texto, a.empleado_num, a.empleado_nombre, a.escaneos_umbral]),
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(filas), 'Guantes');
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="avisos-guantes.xlsx"');
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error('Error exporting glove warnings:', error);
+    res.status(500).json({ error: 'Error al descargar el registro de guantes' });
   }
 });
 
