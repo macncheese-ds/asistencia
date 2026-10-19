@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import TxtComponent from "./TxtComponent";
 import { APP_VERSION } from "./version";
-import { fechaHoySaltillo } from "./zonaHoraria";
+import { fechaHoySaltillo, horaSaltillo } from "./zonaHoraria";
 
 // Configure axios for CORS
 axios.defaults.headers.common["Content-Type"] = "application/json";
@@ -42,11 +42,17 @@ function App() {
   const [downloadTurn, setDownloadTurn] = useState("all");
   const [currentTurn, setCurrentTurn] = useState({ turn: 1, name: "TURNO MAÑANA", withinWindow: false });
   const [scanDisplayMs, setScanDisplayMs] = useState(DEFAULT_SCAN_DISPLAY_MS);
+  const [horaActual, setHoraActual] = useState(() => horaSaltillo());
   const inputRef = useRef(null);
   const scanModalRef = useRef(null);
   
   const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:3113/api`;
   const SCAN_ENDPOINT = `${API_BASE}/attendance/log`;
+
+  useEffect(() => {
+    const timer = setInterval(() => setHoraActual(horaSaltillo()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Fetch current server time and turn
   useEffect(() => {
@@ -290,6 +296,8 @@ function App() {
             </div>
           </header>
           <div className={`rounded-2xl border p-6 mb-8 text-center bg-slate-900/70 backdrop-blur-xl shadow-xl shadow-black/30 transition duration-300 ${currentTurn.withinWindow ? "border-emerald-500/40 ring-1 ring-emerald-500/20" : "border-white/5"}`}>
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Hora actual · Saltillo, Coahuila</p>
+            <p className="text-5xl font-black tabular-nums tracking-tight text-white mb-6">{horaActual}</p>
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Turno actual</p>
             <h2 className="text-2xl font-bold text-white">{currentTurn.name}</h2>
             <span className={`inline-flex items-center gap-2 mt-4 px-3 py-1 rounded-full text-xs font-bold tracking-widest border ${currentTurn.withinWindow ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300" : "bg-slate-800 border-slate-700 text-slate-400"}`}>

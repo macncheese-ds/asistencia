@@ -1127,14 +1127,15 @@ app.post('/api/txt/solicitudes/:id/resolver', requireTxtAuth({ authorizerOnly: t
   }
 });
 
-// Balance per employee. Authorized total = legacy txt hours + authorized requests - hours used (Tool Room). Pending and denied are never added.
-async function calcularTotalesEmpleado(dbNum) {
-  // Legacy txt.empleado may be stored as 179, 0179, 179A, 000179A... Compare using the same core as the employee lookup.
-  const txtEmpleadoCoreSql = `TRIM(LEADING '0' FROM IF(RIGHT(UPPER(TRIM(empleado)), 1) = 'A',
+// Legacy txt.empleado may be stored as 179, 0179, 179A, 000179A... This reduces it to the same core used by the employee lookup.
+const TXT_EMPLEADO_CORE_SQL = `TRIM(LEADING '0' FROM IF(RIGHT(UPPER(TRIM(empleado)), 1) = 'A',
       LEFT(UPPER(TRIM(empleado)), CHAR_LENGTH(TRIM(empleado)) - 1),
       UPPER(TRIM(empleado))))`;
+
+// Balance per employee. Authorized total = legacy txt hours + authorized requests - hours used (Tool Room). Pending and denied are never added.
+async function calcularTotalesEmpleado(dbNum) {
   const [historico] = await asistenciaPool.query(
-    `SELECT COALESCE(SUM(hours), 0) AS horas, COALESCE(SUM(usadas), 0) AS usadas FROM txt WHERE ${txtEmpleadoCoreSql} = ?`,
+    `SELECT COALESCE(SUM(hours), 0) AS horas, COALESCE(SUM(usadas), 0) AS usadas FROM txt WHERE ${TXT_EMPLEADO_CORE_SQL} = ?`,
     [txtEmployeeCore(dbNum)]
   );
   const [semanas] = await asistenciaPool.query(
@@ -1164,11 +1165,15 @@ async function calcularTotalesEmpleado(dbNum) {
   const usadasHistoricas = Number(historico[0].usadas);
   const saldoHistorico = horasHistoricas - usadasHistoricas;
   const utilizadoMin = Number(utilizadas[0].utilizado_min);
+  const totalGeneradoMin = horasHistoricas + suma('autorizada_min');
+  const totalGastadoMin = usadasHistoricas + utilizadoMin;
 
   return {
     historico: { horas_min: horasHistoricas, usadas_min: usadasHistoricas, saldo_min: saldoHistorico },
     utilizado_min: utilizadoMin,
-    total_autorizado_min: saldoHistorico + suma('autorizada_min') - utilizadoMin,
+    total_generado_min: totalGeneradoMin,
+    total_gastado_min: totalGastadoMin,
+    total_autorizado_min: totalGeneradoMin - totalGastadoMin,
     pendiente_min: suma('pendiente_min'),
     denegada_min: suma('denegada_min'),
     semanas: semanasNorm
@@ -1273,8 +1278,8 @@ app.post('/api/txt/horas-utilizadas', requireTxtAuth({ toolRoomOnly: true }), as
 });
 
 
-// Historial de horas agregadas (solicitudes), horas utilizadas y avisos de guantes. Engineer 179 and Tool Room.
-const HISTORIAL_TIPOS = ['agregada', 'utilizada', 'guante'];
+// Historial por empleado: horas agregadas (solicitudes), horas utilizadas, avisos de guantes y registros legacy de txt.
+const HISTORIAL_TIPOS = ['agregada', 'utilizada', 'guante', 'legacy'];
 const HISTORIAL_LIMITE = 500;
 
 app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), async (req, res) => {
@@ -1282,11 +1287,15 @@ app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), as
   if (tipo !== undefined && tipo !== '' && !HISTORIAL_TIPOS.includes(tipo)) {
     return res.status(400).json({ error: 'Tipo no válido.' });
   }
-  const variants = num_empleado ? txtEmployeeVariants(num_empleado) : null;
+  if (!num_empleado || !normalizeTxtEmployeeNumber(num_empleado)) {
+    return res.status(400).json({ error: 'Indica el número de empleado para ver su historial.' });
+  }
+  const variants = txtEmployeeVariants(num_empleado);
   const filtroEmpleado = (columna) =>
-    variants ? ` AND ${columna} IN (${variants.map(() => '?').join(',') || "''"})` : '';
-  const params = variants || [];
+    variants.length ? ` AND ${columna} IN (${variants.map(() => '?').join(',')})` : '';
+  const params = variants;
   const incluir = (t) => !tipo || tipo === t;
+  const numCore = txtEmployeeCore(num_empleado);
 
   try {
     const registros = [];
@@ -1317,6 +1326,18 @@ app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), as
          FROM avisos_guantes WHERE 1=1${filtroEmpleado('empleado_num')}
          ORDER BY avisado_at DESC LIMIT ${HISTORIAL_LIMITE}`,
         params
+      );
+      registros.push(...rows);
+    }
+    if (incluir('legacy')) {
+      // txt has no event date, so these rows carry no fecha/registrado_at and sort last.
+      const [rows] = await asistenciaPool.query(
+        `SELECT 'legacy' AS tipo, id, ${TXT_EMPLEADO_CORE_SQL} AS empleado_num, NULL AS fecha, hours AS minutos, NULL AS estado,
+           NULL AS registrado_por_num, NULL AS registrado_at, NULL AS escaneos_umbral,
+           usadas AS usadas_min, week AS semana, comentarios
+         FROM txt WHERE ${TXT_EMPLEADO_CORE_SQL} = ?
+         ORDER BY week DESC LIMIT ${HISTORIAL_LIMITE}`,
+        [numCore]
       );
       registros.push(...rows);
     }

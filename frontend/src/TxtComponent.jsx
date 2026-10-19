@@ -42,6 +42,7 @@ function formatCampoValor(campo, valor) {
   return valor;
 }
 const METRIC_TONES = {
+  sky: "border-sky-500/50 text-sky-300",
   emerald: "border-emerald-500/50 text-emerald-300",
   amber: "border-amber-500/50 text-amber-300",
   red: "border-rose-500/50 text-rose-300",
@@ -180,44 +181,11 @@ function SemanasTable({ semanas }) {
 
 
 // Tool Room: registers hours already used by an employee. Reduces the available balance directly (no request).
-function UsoHorasTab({ callApi, onNotice }) {
-  const [busqueda, setBusqueda] = useState("");
-  const [empleado, setEmpleado] = useState(null);
-  const [totales, setTotales] = useState(null);
-  const [buscando, setBuscando] = useState(false);
+function UsoHorasTab({ empleado, callApi, onNotice, onCambios }) {
   const [enviando, setEnviando] = useState(false);
   const [form, setForm] = useState({ fecha: todayIso(), horas: "", minutos: "" });
   const pendingRef = useRef(null);
   const inFlightRef = useRef(false);
-
-  const cargarTotales = async (num) => {
-    try {
-      setTotales(await callApi("get", `/txt/totales/${encodeURIComponent(num)}`));
-    } catch (err) {
-      onNotice({ type: "error", text: errorText(err, "No se pudieron cargar los totales") });
-    }
-  };
-
-  const buscarEmpleado = async (e) => {
-    e.preventDefault();
-    const num = busqueda.trim();
-    if (!num || buscando) return;
-    setBuscando(true);
-    onNotice(null);
-    try {
-      const data = await callApi("get", `/txt/empleados/${encodeURIComponent(num)}`);
-      setEmpleado(data.empleado);
-      setTotales(null);
-      pendingRef.current = null;
-      await cargarTotales(data.empleado.num_empleado);
-    } catch (err) {
-      setEmpleado(null);
-      setTotales(null);
-      onNotice({ type: "error", text: errorText(err, "Error al buscar el empleado") });
-    } finally {
-      setBuscando(false);
-    }
-  };
 
   const registrar = async (e) => {
     e.preventDefault();
@@ -249,7 +217,7 @@ function UsoHorasTab({ callApi, onNotice }) {
           ? "Este registro ya estaba guardado. No se volvió a descontar."
           : "Horas utilizadas registradas. El disponible se redujo.",
       });
-      await cargarTotales(empleado.num_empleado);
+      await onCambios();
     } catch (err) {
       onNotice({ type: "error", text: errorText(err, "No se pudieron registrar las horas utilizadas") });
     } finally {
@@ -260,38 +228,6 @@ function UsoHorasTab({ callApi, onNotice }) {
 
   return (
     <div className="space-y-8">
-      <form onSubmit={buscarEmpleado} className="flex flex-col sm:flex-row gap-3">
-        <label htmlFor="uso-empleado" className="sr-only">Número de empleado</label>
-        <input
-          id="uso-empleado"
-          className={`${inputClass} sm:flex-1`}
-          placeholder="Número de empleado"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          autoComplete="off"
-        />
-        <button type="submit" disabled={buscando} className={buttonClass}>
-          {buscando ? "Buscando..." : "Buscar empleado"}
-        </button>
-      </form>
-
-      {empleado && (
-        <div className="bg-slate-900 border-2 border-emerald-800 rounded-xl p-6 text-center">
-          <p className="text-slate-400 uppercase tracking-widest text-sm mb-2">Empleado</p>
-          <p className="text-4xl md:text-5xl font-black text-white break-words">{empleado.nombre}</p>
-          <p className="text-2xl md:text-3xl font-bold text-emerald-300 mt-2">No. {empleado.num_empleado}</p>
-          {empleado.area && <p className="text-slate-400 mt-2">{empleado.area}</p>}
-        </div>
-      )}
-
-      {empleado && totales && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Metric label="Disponible" value={formatMinutes(totales.total_autorizado_min)} tone="emerald" />
-          <Metric label="Utilizado (Tool Room)" value={formatMinutes(totales.utilizado_min)} tone="amber" />
-        </div>
-      )}
-
-      {empleado && (
         <form onSubmit={registrar} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
           <h3 className={`${ui.sectionTitle} mb-6`}>Registrar horas utilizadas</h3>
           <div className="grid gap-5 md:grid-cols-3">
@@ -342,49 +278,15 @@ function UsoHorasTab({ callApi, onNotice }) {
             {enviando ? "Guardando..." : "Registrar horas utilizadas"}
           </button>
         </form>
-      )}
     </div>
   );
 }
 
-function RegistroTab({ callApi, onNotice }) {
-  const [busqueda, setBusqueda] = useState("");
-  const [empleado, setEmpleado] = useState(null);
-  const [totales, setTotales] = useState(null);
-  const [buscando, setBuscando] = useState(false);
+function RegistroTab({ empleado, totales, callApi, onNotice, onCambios }) {
   const [enviando, setEnviando] = useState(false);
   const [form, setForm] = useState({ fecha: todayIso(), horas: "", minutos: "" });
   const pendingRef = useRef(null);
   const inFlightRef = useRef(false);
-
-  const cargarTotales = async (num) => {
-    try {
-      setTotales(await callApi("get", `/txt/totales/${encodeURIComponent(num)}`));
-    } catch (err) {
-      onNotice({ type: "error", text: errorText(err, "No se pudieron cargar los totales") });
-    }
-  };
-
-  const buscarEmpleado = async (e) => {
-    e.preventDefault();
-    const num = busqueda.trim();
-    if (!num || buscando) return;
-    setBuscando(true);
-    onNotice(null);
-    try {
-      const data = await callApi("get", `/txt/empleados/${encodeURIComponent(num)}`);
-      setEmpleado(data.empleado);
-      setTotales(null);
-      pendingRef.current = null;
-      await cargarTotales(data.empleado.num_empleado);
-    } catch (err) {
-      setEmpleado(null);
-      setTotales(null);
-      onNotice({ type: "error", text: errorText(err, "Error al buscar el empleado") });
-    } finally {
-      setBuscando(false);
-    }
-  };
 
   const registrar = async (e) => {
     e.preventDefault();
@@ -416,7 +318,7 @@ function RegistroTab({ callApi, onNotice }) {
           ? "Esta solicitud ya estaba registrada. Queda pendiente de autorización."
           : `Solicitud registrada (${formatMinutes(data.solicitud?.minutos)}). Queda pendiente de autorización.`,
       });
-      await cargarTotales(empleado.num_empleado);
+      await onCambios();
     } catch (err) {
       onNotice({ type: "error", text: errorText(err, "No se pudo registrar la solicitud") });
     } finally {
@@ -427,31 +329,6 @@ function RegistroTab({ callApi, onNotice }) {
 
   return (
     <div className="space-y-8">
-      <form onSubmit={buscarEmpleado} className="flex flex-col sm:flex-row gap-3">
-        <label htmlFor="txt-empleado" className="sr-only">Número de empleado</label>
-        <input
-          id="txt-empleado"
-          className={`${inputClass} sm:flex-1`}
-          placeholder="Número de empleado"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          autoComplete="off"
-        />
-        <button type="submit" disabled={buscando} className={buttonClass}>
-          {buscando ? "Buscando..." : "Buscar empleado"}
-        </button>
-      </form>
-
-      {empleado && (
-        <div className="bg-slate-900 border-2 border-emerald-800 rounded-xl p-6 text-center">
-          <p className="text-slate-400 uppercase tracking-widest text-sm mb-2">Empleado</p>
-          <p className="text-4xl md:text-5xl font-black text-white break-words">{empleado.nombre}</p>
-          <p className="text-2xl md:text-3xl font-bold text-emerald-300 mt-2">No. {empleado.num_empleado}</p>
-          {empleado.area && <p className="text-slate-400 mt-2">{empleado.area}</p>}
-        </div>
-      )}
-
-      {empleado && (
         <form onSubmit={registrar} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
           <h3 className={`${ui.sectionTitle} mb-6`}>Registrar horas</h3>
           <div className="grid gap-5 md:grid-cols-3">
@@ -502,12 +379,10 @@ function RegistroTab({ callApi, onNotice }) {
             {enviando ? "Enviando..." : "Enviar solicitud"}
           </button>
         </form>
-      )}
 
-      {empleado && totales && (
+      {totales && (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Metric label="Disponible" value={formatMinutes(totales.total_autorizado_min)} tone="emerald" />
+          <div className="grid gap-4 md:grid-cols-2">
             <Metric label="Pendiente" value={formatMinutes(totales.pendiente_min)} tone="amber" />
             <Metric label="Denegado" value={formatMinutes(totales.denegada_min)} tone="red" />
           </div>
@@ -717,7 +592,8 @@ function AutorizacionTab({ callApi, onNotice }) {
 const TIPO_HISTORIAL_LABELS = {
   agregada: { label: "Horas agregadas", style: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" },
   utilizada: { label: "Horas utilizadas", style: "bg-amber-500/15 text-amber-300 border-amber-500/40" },
-  guante: { label: "Aviso de guantes", style: "bg-rose-500/15 text-rose-300 border-rose-500/40" }
+  guante: { label: "Aviso de guantes", style: "bg-rose-500/15 text-rose-300 border-rose-500/40" },
+  legacy: { label: "Anterior al sistema", style: "bg-sky-500/15 text-sky-300 border-sky-500/40" }
 };
 
 function TipoBadge({ tipo }) {
@@ -729,16 +605,17 @@ function TipoBadge({ tipo }) {
   );
 }
 
-function HistorialTab({ callApi, onNotice }) {
+function HistorialTab({ empleado, callApi, onNotice }) {
   const [tipo, setTipo] = useState("");
-  const [numEmpleado, setNumEmpleado] = useState("");
   const [registros, setRegistros] = useState([]);
   const [cargando, setCargando] = useState(false);
 
-  const cargar = async (filtros) => {
+  const cargar = async () => {
     setCargando(true);
     try {
-      const params = Object.fromEntries(Object.entries(filtros).filter(([, v]) => v));
+      const params = Object.fromEntries(
+        Object.entries({ num_empleado: empleado.num_empleado, tipo }).filter(([, v]) => v)
+      );
       const data = await callApi("get", "/txt/historial", { params });
       setRegistros(data.registros);
     } catch (err) {
@@ -749,13 +626,8 @@ function HistorialTab({ callApi, onNotice }) {
   };
 
   useEffect(() => {
-    cargar({});
-  }, []);
-
-  const aplicarFiltros = (e) => {
-    e.preventDefault();
-    cargar({ tipo, num_empleado: numEmpleado.trim() });
-  };
+    cargar();
+  }, [empleado.num_empleado, tipo]);
 
   const detalle = (r) => {
     if (r.tipo === "agregada") {
@@ -769,33 +641,40 @@ function HistorialTab({ callApi, onNotice }) {
     if (r.tipo === "utilizada") {
       return <span className="font-bold text-white">{formatMinutes(r.minutos)}</span>;
     }
+    if (r.tipo === "legacy") {
+      return (
+        <div className="space-y-1">
+          <div className="flex flex-wrap gap-3">
+            <span className="font-bold text-white">Generadas {formatMinutes(r.minutos)}</span>
+            <span className="text-amber-200">Usadas {formatMinutes(r.usadas_min)}</span>
+          </div>
+          {r.comentarios && <p className="text-slate-400 text-sm">{r.comentarios}</p>}
+        </div>
+      );
+    }
     return <span className="text-amber-200">Cambiar guantes · {r.escaneos_umbral} escaneos</span>;
   };
 
   return (
     <div className="space-y-6">
-      <form onSubmit={aplicarFiltros} className="grid gap-4 md:grid-cols-4 items-end bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <p className={ui.muted}>
+          Historial de <span className="font-semibold text-white">{empleado.nombre}</span> · No. {empleado.num_empleado}
+        </p>
+        <div className="w-full md:w-64">
           <label htmlFor="hist-tipo" className="block text-sm mb-2 text-slate-400">Tipo</label>
           <select id="hist-tipo" className={inputClass} value={tipo} onChange={(e) => setTipo(e.target.value)}>
             <option value="">Todos</option>
             <option value="agregada">Horas agregadas</option>
             <option value="utilizada">Horas utilizadas</option>
             <option value="guante">Avisos de guantes</option>
+            <option value="legacy">Anterior al sistema</option>
           </select>
         </div>
-        <div>
-          <label htmlFor="hist-empleado" className="block text-sm mb-2 text-slate-400">Empleado</label>
-          <input id="hist-empleado" className={inputClass} placeholder="No. empleado" value={numEmpleado}
-            onChange={(e) => setNumEmpleado(e.target.value)} />
-        </div>
-        <button type="submit" disabled={cargando} className={primaryButtonClass}>
-          {cargando ? "Cargando..." : "Filtrar"}
-        </button>
-      </form>
+      </div>
 
       {registros.length === 0 ? (
-        <p className="text-slate-400 text-lg">No hay registros con esos filtros.</p>
+        <p className="text-slate-400 text-lg">{cargando ? "Cargando..." : "No hay registros para este empleado con ese filtro."}</p>
       ) : (
         <div className="overflow-x-auto bg-slate-900 border border-slate-800 rounded-xl">
           <table className="w-full text-base">
@@ -819,9 +698,9 @@ function HistorialTab({ callApi, onNotice }) {
                     <br />
                     <span className="text-slate-400">No. {r.empleado_num}</span>
                   </td>
-                  <td className={tdClass}>{formatDate(r.fecha)}</td>
+                  <td className={tdClass}>{r.tipo === "legacy" ? `Semana ${r.semana}` : formatDate(r.fecha)}</td>
                   <td className={tdClass}>{detalle(r)}</td>
-                  <td className={tdClass}>{r.registrado_por_num || "Sistema"}</td>
+                  <td className={tdClass}>{r.registrado_por_num || (r.tipo === "legacy" ? "-" : "Sistema")}</td>
                 </tr>
               ))}
             </tbody>
@@ -1074,6 +953,10 @@ export default function TxtComponent({ onClose }) {
   const [loggingIn, setLoggingIn] = useState(false);
   const [tab, setTab] = useState("registro");
   const [notice, setNotice] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [buscando, setBuscando] = useState(false);
+  const [empleado, setEmpleado] = useState(null);
+  const [totales, setTotales] = useState(null);
 
   const callApi = async (method, path, { data, params } = {}) => {
     try {
@@ -1091,6 +974,35 @@ export default function TxtComponent({ onClose }) {
         setLoginError("Tu sesión expiró. Inicia sesión nuevamente.");
       }
       throw err;
+    }
+  };
+
+  const cargarTotales = async (num) => {
+    try {
+      setTotales(await callApi("get", `/txt/totales/${encodeURIComponent(num)}`));
+    } catch (err) {
+      setNotice({ type: "error", text: errorText(err, "No se pudieron cargar los totales") });
+    }
+  };
+
+  const buscarEmpleado = async (e) => {
+    e.preventDefault();
+    const num = busqueda.trim();
+    if (!num || buscando) return;
+    setBuscando(true);
+    setNotice(null);
+    try {
+      const data = await callApi("get", `/txt/empleados/${encodeURIComponent(num)}`);
+      setEmpleado(data.empleado);
+      setTotales(null);
+      setTab("registro");
+      await cargarTotales(data.empleado.num_empleado);
+    } catch (err) {
+      setEmpleado(null);
+      setTotales(null);
+      setNotice({ type: "error", text: errorText(err, "Error al buscar el empleado") });
+    } finally {
+      setBuscando(false);
     }
   };
 
@@ -1128,6 +1040,9 @@ export default function TxtComponent({ onClose }) {
     setSession(null);
     setTab("registro");
     setNotice(null);
+    setEmpleado(null);
+    setTotales(null);
+    setBusqueda("");
   };
 
   const handleClose = () => {
@@ -1179,21 +1094,24 @@ export default function TxtComponent({ onClose }) {
     );
   }
 
-  const tabs = [{ id: "registro", label: "Registro" }];
-  if (session.user.rol === "Tool Room") {
-    tabs.push({ id: "uso_horas", label: "Horas utilizadas" });
+  const puedeHistorial = session.can_authorize || session.user.rol === "Tool Room";
+  const tabs = [];
+  if (empleado) {
+    tabs.push({ id: "registro", label: "Registrar horas" });
+    if (session.user.rol === "Tool Room") tabs.push({ id: "uso_horas", label: "Horas utilizadas" });
+    if (puedeHistorial) tabs.push({ id: "historial", label: "Historial" });
   }
   if (session.can_authorize) {
     tabs.push({ id: "autorizacion", label: "Autorización" }, { id: "configuracion", label: "Configuración" });
   }
-  if (session.can_authorize || session.user.rol === "Tool Room") {
-    tabs.push({ id: "historial", label: "Historial" });
-  }
+  const tabActiva = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id;
 
   const changeTab = (id) => {
     setTab(id);
     setNotice(null);
   };
+
+  const recargarTotales = () => cargarTotales(empleado.num_empleado);
 
   return (
     <Shell
@@ -1202,33 +1120,84 @@ export default function TxtComponent({ onClose }) {
       actions={<button type="button" onClick={handleLogout} className={buttonClass}>Cerrar sesión</button>}
       onClose={handleClose}
     >
-      <nav className="flex flex-wrap gap-2 p-1.5 mb-8 bg-slate-950/80 border border-white/5 rounded-2xl w-fit" aria-label="Pestañas">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => changeTab(t.id)}
-            aria-current={tab === t.id ? "page" : undefined}
-            className={`px-5 py-3 rounded-xl text-lg font-semibold transition ${
-              tab === t.id
-                ? "bg-sky-600 text-white shadow-lg shadow-sky-900/40"
-                : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <form onSubmit={buscarEmpleado} className="flex flex-col sm:flex-row gap-3 mb-8">
+        <label htmlFor="txt-empleado" className="sr-only">Número de empleado</label>
+        <input
+          id="txt-empleado"
+          className={`${inputClass} sm:flex-1`}
+          placeholder="Número de empleado"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          autoComplete="off"
+        />
+        <button type="submit" disabled={buscando} className={buttonClass}>
+          {buscando ? "Buscando..." : "Buscar empleado"}
+        </button>
+      </form>
+
+      {!empleado && (
+        <p className={`${ui.muted} mb-8`}>
+          Busca un número de empleado para registrar sus horas, ver las horas utilizadas o su historial.
+        </p>
+      )}
+
+      {empleado && (
+        <div className="bg-slate-900 border-2 border-emerald-800 rounded-xl p-6 text-center mb-8">
+          <p className="text-slate-400 uppercase tracking-widest text-sm mb-2">Empleado</p>
+          <p className="text-4xl md:text-5xl font-black text-white break-words">{empleado.nombre}</p>
+          <p className="text-2xl md:text-3xl font-bold text-emerald-300 mt-2">No. {empleado.num_empleado}</p>
+          {empleado.area && <p className="text-slate-400 mt-2">{empleado.area}</p>}
+        </div>
+      )}
+
+      {empleado && totales && (
+        <div className="grid gap-4 md:grid-cols-3 mb-8">
+          <Metric label="Horas disponibles" value={formatMinutes(totales.total_autorizado_min)} tone="emerald" />
+          <Metric label="Total horas hechas" value={formatMinutes(totales.total_generado_min)} tone="sky" />
+          <Metric label="Total horas gastadas" value={formatMinutes(totales.total_gastado_min)} tone="amber" />
+        </div>
+      )}
+
+      {tabs.length > 0 && (
+        <nav className="flex flex-wrap gap-2 p-1.5 mb-8 bg-slate-950/80 border border-white/5 rounded-2xl w-fit" aria-label="Pestañas">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => changeTab(t.id)}
+              aria-current={tabActiva === t.id ? "page" : undefined}
+              className={`px-5 py-3 rounded-xl text-lg font-semibold transition ${
+                tabActiva === t.id
+                  ? "bg-sky-600 text-white shadow-lg shadow-sky-900/40"
+                  : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <Notice notice={notice} />
 
-      {tab === "registro" && <RegistroTab callApi={callApi} onNotice={setNotice} />}
-      {tab === "uso_horas" && session.user.rol === "Tool Room" && <UsoHorasTab callApi={callApi} onNotice={setNotice} />}
-      {tab === "autorizacion" && session.can_authorize && <AutorizacionTab callApi={callApi} onNotice={setNotice} />}
-      {tab === "configuracion" && session.can_authorize && <ConfiguracionTab callApi={callApi} onNotice={setNotice} />}
-      {tab === "historial" && (session.can_authorize || session.user.rol === "Tool Room") && (
-        <HistorialTab callApi={callApi} onNotice={setNotice} />
+      {empleado && tabActiva === "registro" && (
+        <RegistroTab
+          key={empleado.num_empleado}
+          empleado={empleado}
+          totales={totales}
+          callApi={callApi}
+          onNotice={setNotice}
+          onCambios={recargarTotales}
+        />
       )}
+      {empleado && tabActiva === "uso_horas" && (
+        <UsoHorasTab key={empleado.num_empleado} empleado={empleado} callApi={callApi} onNotice={setNotice} onCambios={recargarTotales} />
+      )}
+      {empleado && tabActiva === "historial" && (
+        <HistorialTab key={empleado.num_empleado} empleado={empleado} callApi={callApi} onNotice={setNotice} />
+      )}
+      {tabActiva === "autorizacion" && <AutorizacionTab callApi={callApi} onNotice={setNotice} />}
+      {tabActiva === "configuracion" && <ConfiguracionTab callApi={callApi} onNotice={setNotice} />}
     </Shell>
   );
 }
