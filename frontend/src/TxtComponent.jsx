@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { ui } from "./ui";
 import { APP_VERSION } from "./version";
+import { fechaHoySaltillo } from "./zonaHoraria";
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:3113/api`;
 
@@ -59,9 +60,7 @@ function errorText(err, fallback) {
 }
 
 function todayIso() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return fechaHoySaltillo();
 }
 
 // Request ids are hex strings built with getRandomValues, which also works outside secure contexts (randomUUID does not)
@@ -461,7 +460,6 @@ function RegistroTab({ callApi, onNotice }) {
               <input
                 id="txt-fecha"
                 type="date"
-                max={todayIso()}
                 className={inputClass}
                 value={form.fecha}
                 onChange={(e) => setForm({ ...form, fecha: e.target.value })}
@@ -712,6 +710,124 @@ function AutorizacionTab({ callApi, onNotice }) {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+const TIPO_HISTORIAL_LABELS = {
+  agregada: { label: "Horas agregadas", style: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" },
+  utilizada: { label: "Horas utilizadas", style: "bg-amber-500/15 text-amber-300 border-amber-500/40" },
+  guante: { label: "Aviso de guantes", style: "bg-rose-500/15 text-rose-300 border-rose-500/40" }
+};
+
+function TipoBadge({ tipo }) {
+  const info = TIPO_HISTORIAL_LABELS[tipo];
+  return (
+    <span className={`inline-block border px-3 py-1 rounded-full text-sm font-semibold ${info?.style || "bg-slate-800 text-slate-300 border-slate-600"}`}>
+      {info?.label || tipo}
+    </span>
+  );
+}
+
+function HistorialTab({ callApi, onNotice }) {
+  const [tipo, setTipo] = useState("");
+  const [numEmpleado, setNumEmpleado] = useState("");
+  const [registros, setRegistros] = useState([]);
+  const [cargando, setCargando] = useState(false);
+
+  const cargar = async (filtros) => {
+    setCargando(true);
+    try {
+      const params = Object.fromEntries(Object.entries(filtros).filter(([, v]) => v));
+      const data = await callApi("get", "/txt/historial", { params });
+      setRegistros(data.registros);
+    } catch (err) {
+      onNotice({ type: "error", text: errorText(err, "No se pudo cargar el historial") });
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargar({});
+  }, []);
+
+  const aplicarFiltros = (e) => {
+    e.preventDefault();
+    cargar({ tipo, num_empleado: numEmpleado.trim() });
+  };
+
+  const detalle = (r) => {
+    if (r.tipo === "agregada") {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold text-white">{formatMinutes(r.minutos)}</span>
+          <EstadoBadge estado={r.estado} />
+        </div>
+      );
+    }
+    if (r.tipo === "utilizada") {
+      return <span className="font-bold text-white">{formatMinutes(r.minutos)}</span>;
+    }
+    return <span className="text-amber-200">Cambiar guantes · {r.escaneos_umbral} escaneos</span>;
+  };
+
+  return (
+    <div className="space-y-6">
+      <form onSubmit={aplicarFiltros} className="grid gap-4 md:grid-cols-4 items-end bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div>
+          <label htmlFor="hist-tipo" className="block text-sm mb-2 text-slate-400">Tipo</label>
+          <select id="hist-tipo" className={inputClass} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="agregada">Horas agregadas</option>
+            <option value="utilizada">Horas utilizadas</option>
+            <option value="guante">Avisos de guantes</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="hist-empleado" className="block text-sm mb-2 text-slate-400">Empleado</label>
+          <input id="hist-empleado" className={inputClass} placeholder="No. empleado" value={numEmpleado}
+            onChange={(e) => setNumEmpleado(e.target.value)} />
+        </div>
+        <button type="submit" disabled={cargando} className={primaryButtonClass}>
+          {cargando ? "Cargando..." : "Filtrar"}
+        </button>
+      </form>
+
+      {registros.length === 0 ? (
+        <p className="text-slate-400 text-lg">No hay registros con esos filtros.</p>
+      ) : (
+        <div className="overflow-x-auto bg-slate-900 border border-slate-800 rounded-xl">
+          <table className="w-full text-base">
+            <thead className="border-b border-slate-800">
+              <tr>
+                <th className={thClass}>Registrado</th>
+                <th className={thClass}>Tipo</th>
+                <th className={thClass}>Empleado</th>
+                <th className={thClass}>Fecha</th>
+                <th className={thClass}>Detalle</th>
+                <th className={thClass}>Por</th>
+              </tr>
+            </thead>
+            <tbody>
+              {registros.map((r) => (
+                <tr key={`${r.tipo}-${r.id}`} className="border-b border-slate-800">
+                  <td className={tdClass}>{formatDateTime(r.registrado_at)}</td>
+                  <td className={tdClass}><TipoBadge tipo={r.tipo} /></td>
+                  <td className={tdClass}>
+                    <span className="font-semibold text-white">{r.empleado_nombre || "-"}</span>
+                    <br />
+                    <span className="text-slate-400">No. {r.empleado_num}</span>
+                  </td>
+                  <td className={tdClass}>{formatDate(r.fecha)}</td>
+                  <td className={tdClass}>{detalle(r)}</td>
+                  <td className={tdClass}>{r.registrado_por_num || "Sistema"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1070,6 +1186,9 @@ export default function TxtComponent({ onClose }) {
   if (session.can_authorize) {
     tabs.push({ id: "autorizacion", label: "Autorización" }, { id: "configuracion", label: "Configuración" });
   }
+  if (session.can_authorize || session.user.rol === "Tool Room") {
+    tabs.push({ id: "historial", label: "Historial" });
+  }
 
   const changeTab = (id) => {
     setTab(id);
@@ -1107,6 +1226,9 @@ export default function TxtComponent({ onClose }) {
       {tab === "uso_horas" && session.user.rol === "Tool Room" && <UsoHorasTab callApi={callApi} onNotice={setNotice} />}
       {tab === "autorizacion" && session.can_authorize && <AutorizacionTab callApi={callApi} onNotice={setNotice} />}
       {tab === "configuracion" && session.can_authorize && <ConfiguracionTab callApi={callApi} onNotice={setNotice} />}
+      {tab === "historial" && (session.can_authorize || session.user.rol === "Tool Room") && (
+        <HistorialTab callApi={callApi} onNotice={setNotice} />
+      )}
     </Shell>
   );
 }

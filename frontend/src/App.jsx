@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import TxtComponent from "./TxtComponent";
 import { APP_VERSION } from "./version";
+import { fechaHoySaltillo } from "./zonaHoraria";
 
 // Configure axios for CORS
 axios.defaults.headers.common["Content-Type"] = "application/json";
@@ -34,7 +35,7 @@ function App() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [registrations, setRegistrations] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(fechaHoySaltillo());
   const [scanQueue, setScanQueue] = useState([]);
   const scanModal = scanQueue[0] || null;
   const [isScanning, setIsScanning] = useState(false);
@@ -200,7 +201,7 @@ function App() {
     setPassword("");
     setLoginError("");
     setRegistrations(null);
-    setSelectedDate(new Date().toISOString().split('T')[0]);
+    setSelectedDate(fechaHoySaltillo());
   };
 
   return (

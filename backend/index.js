@@ -52,10 +52,16 @@ const DEFAULT_ESCANEO_CONFIG = {
   aviso_duracion_seg: 5
 };
 
+// Hora de Saltillo, Coahuila (UTC-6 todo el año). Los campos de la hora de pared se leen con getUTC*.
+const SALTILLO_OFFSET_MS = -6 * 60 * 60 * 1000;
+function wallClockSaltillo(date = new Date()) {
+  return new Date(new Date(date).getTime() + SALTILLO_OFFSET_MS);
+}
+
 // Helper: Check if current time is within the configured morning or evening window (inclusive)
 function isWithinAccessWindow(cfg = DEFAULT_ESCANEO_CONFIG) {
-  const now = new Date();
-  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+  const wall = wallClockSaltillo();
+  const totalMinutes = wall.getUTCHours() * 60 + wall.getUTCMinutes();
 
   return (totalMinutes >= Number(cfg.ventana_manana_inicio_min) && totalMinutes <= Number(cfg.ventana_manana_fin_min)) ||
          (totalMinutes >= Number(cfg.ventana_tarde_inicio_min) && totalMinutes <= Number(cfg.ventana_tarde_fin_min));
@@ -71,13 +77,13 @@ function formatMinutesOfDay(totalMinutes) {
 // Morning: 7:00 AM - 1:59 PM
 // Evening: 2:00 PM - 11:59 PM
 function getCurrentTurn() {
-  const hour = new Date().getHours();
+  const hour = wallClockSaltillo().getUTCHours();
   return hour >= 7 && hour < 14 ? 1 : 2;
 }
 
 // Helper: Get current turn display name
 function getCurrentTurnName() {
-  const hour = new Date().getHours();
+  const hour = wallClockSaltillo().getUTCHours();
   return hour >= 7 && hour < 14 ? 'TURNO MAÑANA' : 'TURNO TARDE';
 }
 
@@ -337,14 +343,14 @@ app.get('/api/time/current', async (req, res) => {
   
   res.json({
     timestamp: now.getTime(),
-    time: now.toLocaleTimeString(),
+    time: now.toLocaleTimeString(undefined, { timeZone: 'America/Mexico_City' }),
     turn,
     turnName,
     withinWindow,
     aviso_duracion_seg: Number(cfg.aviso_duracion_seg),
-    hours: now.getHours(),
-    minutes: now.getMinutes(),
-    seconds: now.getSeconds()
+    hours: wallClockSaltillo(now).getUTCHours(),
+    minutes: wallClockSaltillo(now).getUTCMinutes(),
+    seconds: wallClockSaltillo(now).getUTCSeconds()
   });
 });
 
@@ -405,30 +411,31 @@ const SHIFT_START_EVENING = 14;
 
 // Start of the shift a scan belongs to. 00:00-06:59 belongs to the evening shift that began the previous day.
 function getShiftAnchor(scanDate) {
-  const anchor = new Date(scanDate);
-  const hour = anchor.getHours();
-  if (hour >= SHIFT_START_MORNING && hour < SHIFT_START_EVENING) {
-    anchor.setHours(SHIFT_START_MORNING, 0, 0, 0);
-  } else if (hour >= SHIFT_START_EVENING) {
-    anchor.setHours(SHIFT_START_EVENING, 0, 0, 0);
-  } else {
-    anchor.setDate(anchor.getDate() - 1);
-    anchor.setHours(SHIFT_START_EVENING, 0, 0, 0);
-  }
-  return anchor;
+  const wall = wallClockSaltillo(scanDate);
+  const hour = wall.getUTCHours();
+  const dayStart = Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate());
+  let anchorWall;
+  if (hour >= SHIFT_START_MORNING && hour < SHIFT_START_EVENING) {
+    anchorWall = dayStart + SHIFT_START_MORNING * 3600000;
+  } else if (hour >= SHIFT_START_EVENING) {
+    anchorWall = dayStart + SHIFT_START_EVENING * 3600000;
+  } else {
+    anchorWall = dayStart - 86400000 + SHIFT_START_EVENING * 3600000;
+  }
+  return new Date(anchorWall - SALTILLO_OFFSET_MS);
+}
+
+// Next allowed scan: start of the last valid shift + N calendar days, same shift start time
+function getNextAllowedScan(lastScanDate, diasMinimos) {
+  const next = getShiftAnchor(lastScanDate);
+  return new Date(next.getTime() + diasMinimos * 86400000);
 }
-
-// Next allowed scan: start of the last valid shift + N calendar days, same shift start time
-function getNextAllowedScan(lastScanDate, diasMinimos) {
-  const next = getShiftAnchor(lastScanDate);
-  next.setDate(next.getDate() + diasMinimos);
-  return next;
-}
-
+
 function formatDateTimeEs(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+  const wall = wallClockSaltillo(date);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(wall.getUTCDate())}/${pad(wall.getUTCMonth() + 1)}/${wall.getUTCFullYear()} ${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}`;
+}
 
 async function getEscaneoConfig(db = asistenciaPool) {
   const [rows] = await db.query(
@@ -488,7 +495,7 @@ const handleAttendanceLog = async (req, res) => {
     const rol = users[0].rol || null;
     const area = users[0].area || null;
     const turn = getCurrentTurn();
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayDateOnly();
     const employee = { num_empleado: unumber, full_name: name, rol, area };
 
     connection = await asistenciaPool.getConnection();
@@ -554,8 +561,12 @@ const handleAttendanceLog = async (req, res) => {
     let escaneos = (counterRows[0]?.escaneos ?? 0) + 1;
     const avisoGuantes = escaneos >= umbral;
     if (avisoGuantes) {
-      escaneos = 0;
-    }
+      await connection.query(
+        'INSERT INTO avisos_guantes (empleado_num, fecha, escaneos_umbral, avisado_at) VALUES (?, ?, ?, ?)',
+        [unumber, todayDateOnly(), umbral, now]
+      );
+      escaneos = 0;
+    }
     await connection.query(
       'UPDATE empleado_contador_guantes SET escaneos = ? WHERE num_empleado = ?',
       [escaneos, unumber]
@@ -630,7 +641,7 @@ app.post('/api/registrations/today', async (req, res) => {
     console.log(`[Auth Success] User authenticated with variant: ${usuario}`);
 
     const userArea = users[0].area;
-    const searchDate = date || new Date().toISOString().split('T')[0];
+    const searchDate = date || todayDateOnly();
     
     // Query logs for the specified date, filtered by user's area
     const [rawLogs] = await asistenciaPool.query(
@@ -642,7 +653,7 @@ app.post('/api/registrations/today', async (req, res) => {
     
     // Add turn property based on time (since old table doesn't have turn column yet)
     const logsWithTurn = logs.map(log => {
-      const hour = new Date(log.scan_time).getHours();
+      const hour = wallClockSaltillo(log.scan_time).getUTCHours();
       const turn = hour >= 7 && hour < 14 ? 1 : 2;
       return { ...log, turn };
     });
@@ -651,7 +662,7 @@ app.post('/api/registrations/today', async (req, res) => {
     // Turn 1: Morning (6:00 - 13:59)
     // Turn 2: Afternoon (14:00 - 23:59)
     const turn1Logs = logsWithTurn.filter(log => {
-      const hour = new Date(log.scan_time).getHours();
+      const hour = wallClockSaltillo(log.scan_time).getUTCHours();
       return hour >= 6 && hour < 14;
     }).sort((a, b) => {
       const areaOrder = a.area?.localeCompare(b.area || '') || 0;
@@ -660,7 +671,7 @@ app.post('/api/registrations/today', async (req, res) => {
     });
 
     const turn2Logs = logsWithTurn.filter(log => {
-      const hour = new Date(log.scan_time).getHours();
+      const hour = wallClockSaltillo(log.scan_time).getUTCHours();
       return hour >= 14 || hour < 6;
     }).sort((a, b) => {
       const areaOrder = a.area?.localeCompare(b.area || '') || 0;
@@ -724,7 +735,7 @@ app.post('/api/registrations/download', async (req, res) => {
     }
 
     const userArea = users[0].area;
-    const searchDate = date || new Date().toISOString().split('T')[0];
+    const searchDate = date || todayDateOnly();
     
     // Query all logs for the date and area
     const [rawLogsData] = await asistenciaPool.query(
@@ -738,7 +749,7 @@ app.post('/api/registrations/download', async (req, res) => {
     if (turn && turn !== 'all') {
       const targetTurn = parseInt(turn);
       logs = logs.filter(log => {
-        const hour = new Date(log.scan_time).getHours();
+        const hour = wallClockSaltillo(log.scan_time).getUTCHours();
         const logTurn = hour >= 7 && hour < 14 ? 1 : 2;
         return logTurn === targetTurn;
       });
@@ -751,7 +762,7 @@ app.post('/api/registrations/download', async (req, res) => {
     ];
 
     logs.forEach(log => {
-      const hour = new Date(log.scan_time).getHours();
+      const hour = wallClockSaltillo(log.scan_time).getUTCHours();
       const turnNum = hour >= 7 && hour < 14 ? 1 : 2;
       const turnName = turnNum === 1 ? 'Mañana' : 'Tarde';
       worksheetData.push([
@@ -807,7 +818,7 @@ function getBearerToken(req) {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
-function requireTxtAuth({ authorizerOnly = false, toolRoomOnly = false } = {}) {
+function requireTxtAuth({ authorizerOnly = false, toolRoomOnly = false, authorizerOrToolRoom = false } = {}) {
   return (req, res, next) => {
     const token = getBearerToken(req);
     const session = token ? txtSessions.get(token) : null;
@@ -819,7 +830,9 @@ function requireTxtAuth({ authorizerOnly = false, toolRoomOnly = false } = {}) {
       ? isAuthorizerUser(session.user)
       : toolRoomOnly
         ? session.user.rol === 'Tool Room'
-        : TXT_ALLOWED_ROLES.includes(session.user.rol);
+        : authorizerOrToolRoom
+          ? isAuthorizerUser(session.user) || session.user.rol === 'Tool Room'
+          : TXT_ALLOWED_ROLES.includes(session.user.rol);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para realizar esta acción.' });
     }
@@ -869,11 +882,9 @@ function isValidDateOnly(value) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-function todayDateOnly() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
+function todayDateOnly() {
+  return wallClockSaltillo().toISOString().slice(0, 10);
+}
 
 const SOLICITUD_SELECT = `
   SELECT s.id, s.empleado_num, s.empleado_nombre,
@@ -987,13 +998,10 @@ app.post('/api/txt/solicitudes', requireTxtAuth(), async (req, res) => {
   if (!empleadoNum) {
     return res.status(400).json({ error: 'Número de empleado requerido.' });
   }
-  if (!isValidDateOnly(fecha)) {
-    return res.status(400).json({ error: 'Fecha no válida. Usa el formato AAAA-MM-DD.' });
-  }
-  if (fecha > todayDateOnly()) {
-    return res.status(400).json({ error: 'La fecha no puede ser posterior a hoy.' });
-  }
-  if (minutosTotales === null || minutosTotales < 1 || minutosTotales > 1440) {
+  if (!isValidDateOnly(fecha)) {
+    return res.status(400).json({ error: 'Fecha no válida. Usa el formato AAAA-MM-DD.' });
+  }
+  if (minutosTotales === null || minutosTotales < 1 || minutosTotales > 1440) {
     return res.status(400).json({ error: 'La cantidad debe ser mayor a 0 y no exceder 24 horas (minutos entre 0 y 59).' });
   }
 
@@ -1265,6 +1273,77 @@ app.post('/api/txt/horas-utilizadas', requireTxtAuth({ toolRoomOnly: true }), as
 });
 
 
+// Historial de horas agregadas (solicitudes), horas utilizadas y avisos de guantes. Engineer 179 and Tool Room.
+const HISTORIAL_TIPOS = ['agregada', 'utilizada', 'guante'];
+const HISTORIAL_LIMITE = 500;
+
+app.get('/api/txt/historial', requireTxtAuth({ authorizerOrToolRoom: true }), async (req, res) => {
+  const { tipo, num_empleado } = req.query;
+  if (tipo !== undefined && tipo !== '' && !HISTORIAL_TIPOS.includes(tipo)) {
+    return res.status(400).json({ error: 'Tipo no válido.' });
+  }
+  const variants = num_empleado ? txtEmployeeVariants(num_empleado) : null;
+  const filtroEmpleado = (columna) =>
+    variants ? ` AND ${columna} IN (${variants.map(() => '?').join(',') || "''"})` : '';
+  const params = variants || [];
+  const incluir = (t) => !tipo || tipo === t;
+
+  try {
+    const registros = [];
+    if (incluir('agregada')) {
+      const [rows] = await asistenciaPool.query(
+        `SELECT 'agregada' AS tipo, id, empleado_num, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, minutos, estado,
+           capturado_por_num AS registrado_por_num, capturado_at AS registrado_at, NULL AS escaneos_umbral
+         FROM solicitudes_horas WHERE 1=1${filtroEmpleado('empleado_num')}
+         ORDER BY capturado_at DESC LIMIT ${HISTORIAL_LIMITE}`,
+        params
+      );
+      registros.push(...rows);
+    }
+    if (incluir('utilizada')) {
+      const [rows] = await asistenciaPool.query(
+        `SELECT 'utilizada' AS tipo, id, empleado_num, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, minutos, NULL AS estado,
+           registrado_por_num, registrado_at, NULL AS escaneos_umbral
+         FROM horas_utilizadas WHERE 1=1${filtroEmpleado('empleado_num')}
+         ORDER BY registrado_at DESC LIMIT ${HISTORIAL_LIMITE}`,
+        params
+      );
+      registros.push(...rows);
+    }
+    if (incluir('guante')) {
+      const [rows] = await asistenciaPool.query(
+        `SELECT 'guante' AS tipo, id, empleado_num, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, NULL AS minutos, NULL AS estado,
+           NULL AS registrado_por_num, avisado_at AS registrado_at, escaneos_umbral
+         FROM avisos_guantes WHERE 1=1${filtroEmpleado('empleado_num')}
+         ORDER BY avisado_at DESC LIMIT ${HISTORIAL_LIMITE}`,
+        params
+      );
+      registros.push(...rows);
+    }
+
+    const limitados = registros
+      .sort((a, b) => new Date(b.registrado_at) - new Date(a.registrado_at))
+      .slice(0, HISTORIAL_LIMITE);
+
+    const nums = [...new Set(limitados.map((r) => r.empleado_num))];
+    const nombres = new Map();
+    if (nums.length) {
+      const [users] = await credencialesPool.query(
+        `SELECT num_empleado, nombre FROM users WHERE num_empleado IN (${nums.map(() => '?').join(',')})`,
+        nums
+      );
+      users.forEach((u) => nombres.set(u.num_empleado, u.nombre));
+    }
+
+    res.json({
+      registros: limitados.map((r) => ({ ...r, empleado_nombre: nombres.get(r.empleado_num) || '' }))
+    });
+  } catch (error) {
+    console.error('Error reading hours history:', error);
+    res.status(500).json({ error: 'Error al consultar el historial' });
+  }
+});
+
 // Scan interval and glove threshold configuration (engineer 179 only)
 app.get('/api/txt/config', requireTxtAuth({ authorizerOnly: true }), async (req, res) => {
   try {
